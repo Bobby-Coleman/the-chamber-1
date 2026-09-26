@@ -35,14 +35,14 @@ export class ThirdPersonCamera {
     this.pitch = clamp(this.pitch, -1.2, 1.0);
   }
 
-  follow(dt: number, player: Player) {
+  follow(dt: number, player: Player, chamberHalf = CHAMBER_HALF) {
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const fwd: Vec3 = [-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp];
     const right: Vec3 = [Math.cos(this.yaw), 0, -Math.sin(this.yaw)];
     const shoulder = add(add(player.pos, [0, 1.65, 0]), scale(right, SHOULDER_OFFSET));
     const desired = sub(shoulder, scale(fwd, DISTANCE));
     // Keep the camera inside the chamber; when a wall pushes it in, lift it over the shoulder instead.
-    const lim = CHAMBER_HALF - 0.3;
+    const lim = chamberHalf - 0.3;
     const cx = clamp(desired[0], -lim, lim);
     const cz = clamp(desired[2], -lim, lim);
     const pushed = Math.hypot(desired[0] - cx, desired[2] - cz);

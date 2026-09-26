@@ -1,7 +1,24 @@
-import { basis, cross, length, mul, normalize, scale, scaling, sub, translation, type Vec3 } from '../engine/math';
+import { basis, cross, length, mul, normalize, rotationY, scale, scaling, sub, toQuat, translation, type Vec3 } from '../engine/math';
+import { RAPIER, type Physics } from '../engine/physics';
 import { Pattern, type DrawItem } from '../engine/renderer';
 
 const STEEL = [0.16, 0.20, 0.25], PLATE = [0.39, 0.45, 0.49], ORANGE = [0.88, 0.37, 0.055];
+
+/** One compound kinematic body: real rim contacts can catch individual ragdoll limbs. */
+export class PortalRim {
+  private body: RAPIER.RigidBody;
+  constructor(physics: Physics, centre: Vec3, radius: number) {
+    this.body = physics.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(...centre));
+    for (let i = 0; i < 32; i++) {
+      const a = i / 32 * Math.PI * 2;
+      const collider = RAPIER.ColliderDesc.cuboid(0.24, 0.18, 0.26)
+        .setTranslation(Math.sin(a) * (radius + 0.24), -0.04, Math.cos(a) * (radius + 0.24))
+        .setRotation(toQuat(rotationY(a))).setFriction(0.6).setRestitution(0.25);
+      physics.world.createCollider(collider, this.body);
+    }
+  }
+  move(centre: Vec3) { this.body.setNextKinematicTranslation({ x: centre[0], y: centre[1], z: centre[2] }); }
+}
 
 /** Articulated portal emitter, bolted to the west wall. Its wrist carries the ring at its edge. */
 export function drawPortalArm(out: DrawItem[], centre: Vec3, radius: number, time: number) {
@@ -10,12 +27,12 @@ export function drawPortalArm(out: DrawItem[], centre: Vec3, radius: number, tim
     const y = normalize(sub(b, a)), x = normalize(cross([0, 0, 1], y)), z = cross(x, y);
     out.push({ mesh: 'box', model: basis(scale(x, width), scale(y, length(sub(b, a))), scale(z, depth), [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]), color, spec: 0.55 });
   };
-  const base: Vec3 = [-11.25, 14.2, -1.8];
+  const base: Vec3 = [-13.35, 14.2, -1.8];
   const elbow: Vec3 = [-5.8 + centre[0] * 0.36, 20.8, 0];
   const wrist: Vec3 = [centre[0], centre[1] - 0.08, centre[2] - radius - 0.32];
-  box([-11.25, 7.15, -1.8], [1.05, 14.3, 1.6], STEEL);
-  box([-11.2, 0.3, -1.8], [1.55, 0.6, 3.3], PLATE);
-  for (let y = 1; y < 14; y += 1.8) box([-10.69, y, -1.8], [0.12, 0.26, 1.75], ORANGE);
+  box([-13.35, 9.15, -1.8], [1.05, 10.3, 1.6], STEEL);
+  for (const y of [4.5, 8.5]) box([-13.6, y, -1.8], [0.8, 1.1, 2.6], PLATE);
+  for (let y = 5; y < 14; y += 1.8) box([-12.79, y, -1.8], [0.12, 0.26, 1.75], ORANGE);
   beam(base, elbow, 0.8, 0.95, STEEL);
   beam(elbow, wrist, 0.65, 0.8, PLATE);
   beam([base[0] + 0.3, base[1] - 1.4, base[2] + 0.6], [elbow[0] - 1.1, elbow[1] - 0.4, elbow[2] + 0.6], 0.20, 0.20, [0.64, 0.67, 0.7]);

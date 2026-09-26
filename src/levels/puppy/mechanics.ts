@@ -5,14 +5,19 @@ export const HOOP_Z = 2.8;
 export const HOOP_RADIUS = 1.8;
 export const FLIGHT_GRAVITY = 18;
 export const LICK_WINDUP = 1.3;
+export const PAW_WINDUP = 0.7;
+export const PAW_SWEEP_TIME = 0.42;
+/** The animation and collision use exactly the same sweeping paw path. */
+export function pawSweepPoint(side: number, progress: number): Point {
+  const t = Math.max(0, Math.min(1, progress));
+  return [side * (2.7 - t * 5.4), 1.5 - Math.sin(t * Math.PI) * 0.55, 2.7 + Math.sin(t * Math.PI) * 1.15];
+}
 export const PITS = [
-  { x: -8.3, z: 3, width: 2.8, depth: 3.4 },
-  { x: 8.3, z: 3, width: 2.8, depth: 3.4 },
-  { x: 0, z: 8.6, width: 3.2, depth: 2.8 },
-  { x: -8.8, z: -3.2, width: 2.5, depth: 2.8 },
-  { x: 8.8, z: -3.2, width: 2.5, depth: 2.8 },
-  { x: -6.3, z: 8.5, width: 2.7, depth: 2.7 },
-  { x: 6.3, z: 8.5, width: 2.7, depth: 2.7 },
+  { x: -12.5, z: 1.5, width: 3, depth: 25 },
+  { x: 12.5, z: 1.5, width: 3, depth: 25 },
+  { x: 0, z: 12.5, width: 22, depth: 3 },
+  { x: -7.7, z: 6.2, width: 2.8, depth: 2.8 },
+  { x: 7.7, z: 6.2, width: 2.8, depth: 2.8 },
 ];
 
 export const hoopX = (time: number) => Math.sin(time * (Math.PI * 2 / 7.2)) * 5.6;
@@ -29,6 +34,18 @@ export function hoopCrossing(from: Point, to: Point, beforeTime: number, afterTi
   const z = from[2] + (to[2] - from[2]) * k;
   const t = beforeTime + (afterTime - beforeTime) * k;
   return Math.hypot(x - hoopX(t), z - HOOP_Z) < HOOP_RADIUS - 0.25;
+}
+
+/** A body entering the rim's vertical band activates physical collision before its feet tunnel through. */
+export function rimImpact(from: Point, to: Point, beforeTime: number, afterTime: number): Point | null {
+  const descending = to[1] < from[1];
+  const plane = HOOP_Y + (descending ? 0.85 : -0.95);
+  if (descending ? from[1] < plane || to[1] > plane : from[1] > plane || to[1] < plane) return null;
+  const dy = to[1] - from[1]; if (Math.abs(dy) < 1e-8) return null;
+  const k = (plane - from[1]) / dy;
+  const p: Point = [from[0] + (to[0] - from[0]) * k, plane, from[2] + (to[2] - from[2]) * k];
+  const radius = Math.hypot(p[0] - hoopX(beforeTime + (afterTime - beforeTime) * k), p[2] - HOOP_Z);
+  return radius > HOOP_RADIUS - 0.25 && radius < HOOP_RADIUS + 0.78 ? p : null;
 }
 
 /** A late jump and the middle of the tongue give height; edges give a readable sideways shove. */

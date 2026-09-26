@@ -29,15 +29,21 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   button('Release', () => { (level() as any).release(); step(1); });
   button('Reveal', () => { reset(); (level() as any).release(); step(6.4); });
   button('Battle', battle);
-  button('Lick wind-up', () => { battle(); (level() as any).attackIndex = 2; step(1.5); });
+  button('Lick wind-up', () => { battle(); (level() as any).setMove('lick'); step(0.9); });
   button('Timed jump', () => { const l = level() as any; if (l.move !== 'lick') return; step(Math.max(0, 1.10 - l.moveTime)); key('Space', true); step(0.25); key('Space', false); });
   button('Apex', () => step(0.85));
   button('Land / recover', () => step(6));
   button('Look up', () => { ctx.camera.pitch = 0.95; step(0.35); });
-  button('Paw', () => { battle(); (level() as any).attackIndex = 1; ctx.player.reset([3, 0, -1.5]); step(1.2); });
+  button('Paw', () => { battle(); (level() as any).beginAttack('paw'); step(0.7); });
   button('Tail', () => { battle(); ctx.player.reset([1.2, 0, -6]); step(0.8); });
-  button('Pounce', () => { battle(); ctx.player.reset([5, 0, 7]); step(1.8); });
-  button('Pit', () => { battle(); ctx.player.reset([-8.3, 0.05, 3]); step(1.5); });
+  button('Pounce', () => { battle(); (level() as any).beginAttack('pounce'); step(0.4); });
+  button('Pit', () => { battle(); ctx.player.reset([-12.5, 0.05, 3]); step(0.7); });
+  button('Rim', () => {
+    battle(); const l = level() as any; l.setMove('recover'); l.recoverTime = 30;
+    l.hoopTime = 1.8; step(0.02);
+    ctx.player.pos = [7.6, 18.7, 2.8]; ctx.player.mode = 'flying'; ctx.player.flightStyle = 'flail'; ctx.player.flightDir = [0, 1, 0];
+    l.flight = [0, -6, 0]; l.highFlight = true; l.flightYaw = 0; l.flightViewBlend = 1; step(0.15);
+  });
   button('+0.1s', () => step(0.1)); button('+0.5s', () => step(0.5)); button('+1s', () => step(1));
   button('Hide controls', () => { panel.style.display = 'none'; });
   panel.append(info); document.body.append(panel);

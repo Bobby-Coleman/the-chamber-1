@@ -17,11 +17,18 @@ throughout; there is no reveal cutscene.
 - Attacks rotate through pounce, paw, lick, pounce, paw, pounce, lick. Pounces happen even
   at close range; the rear approach changes a paw attack into a tail sweep. A lick is an
   opportunity between the other attacks, never repeated immediately.
-- A raised paw warns of a sideways swat; circling behind the puppy invites a tail sweep.
-- At range the puppy plants its feet and crouches, barks, then pounces at a locked position.
+- A raised paw reaches forward and sweeps across the entire front of the puppy. The orange
+  arc, visible foot and active hit window follow the same path; back away or move behind him.
+  Circling behind the puppy can invite a tail sweep.
+- The puppy makes short committed trots and quick turns between attacks, with planted feet,
+  lifted return steps, blinking, a smiling jaw, animated barks and flopping ears.
+- The puppy plants its feet, crouches and barks, then pounces. The bow varies from 0.48–0.88
+  seconds and the leap takes 0.44–0.54 seconds. Targeting locks halfway through the bow.
   Landing within 4.3 metres can throw you in a varied direction. The orange floor ring marks
   the landing area. Jumping over the impact or moving clear avoids it.
-- Seven real floor pits punish careless positioning. The broad middle lane remains usable.
+- The chamber is slightly larger (28m across). Deep trenches cover most of the perimeter,
+  with two additional holes near the sides of the fighting area. Steel lips, retaining ribs,
+  dim lamps and shaft walls fade into darkness 36m below. The fall camera stays above the rim.
 - The exit is a sky-facing purple portal carried by an articulated machine arm 17.5 metres
   above the floor. It moves across the room on a repeatable 7.2-second cycle. Descend through
   its opening to leave. Rising through it does not win.
@@ -29,14 +36,18 @@ throughout; there is no reveal cutscene.
   near the apex. The character's flight pose spreads its limbs rather than staying rigid.
 - Missing the portal is survivable: a short ragdoll landing, then recovery with protection
   from repeated hits. Falling into a pit loses the attempt. R restarts; Esc pauses.
+- Clipping the machine's rim activates an intact physical ragdoll. Its moving colliders catch
+  individual limbs; steering stops, the body tumbles and lands naturally, then gets up from
+  its actual resting pose. A clear descent through the opening still wins.
 
 ## Integration
 
 The level and pure scoring rules live in this folder. Models and sounds live in
 `src/entities/puppy.ts`, `prisonVault.ts`, `portalArm.ts` and `puppyAudio.ts`.
 `src/main.ts` adds one level factory to `LEVELS`. Shared changes are opt-in rectangular
-floor pits in `ChamberOptions` and an optional flailing flight pose on `Player`; other
-levels retain their existing floor and dart flight pose.
+floor pits and room size in `ChamberOptions`, an optional flailing flight pose on `Player`,
+and nonfatal physical tumble/recovery methods. Other levels retain their existing floor,
+room size and dart flight pose.
 
 ## Verification
 

@@ -224,7 +224,7 @@ async function main() {
       player.afterPhysics();
       const shot = level.cameraShot();
       if (shot) camera.moveTo(shot.pos, shot.target, dt, shot.sharpness);
-      else camera.follow(dt, player);
+      else camera.follow(dt, player, level.chamber?.halfSize);
       hud.crosshair(interaction.state);
     } else {
       // Title screen: slow orbit around the empty chamber.

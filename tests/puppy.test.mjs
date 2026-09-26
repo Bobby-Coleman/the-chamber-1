@@ -69,7 +69,7 @@ try {
     f.step(0.8); assert.ok(f.player.pos[1] > rules.HOOP_Y, `apex ${f.player.pos[1]}`);
   });
   check('miss lands alive and gets a recovery window', () => {
-    const f = fixture(); f.battle(); f.level.launch([0, 28, 0], true); f.level.setMove('recover');
+    const f = fixture(); f.battle(); f.level.launch([0, 28, 0], true); f.level.setMove('recover'); f.level.recoverTime = 30;
     f.step(3.35); assert.equal(f.level.phase, 'play'); assert.equal(f.player.mode, 'control');
     assert.ok(f.level.immunity > 0); assert.equal(f.level.status, 'playing');
     f.step(5); assert.equal(f.player.gettingUp, false); assert.ok(f.player.pos[1] >= -0.1);
@@ -77,16 +77,18 @@ try {
   check('paws, pounce and tail have a wind-up followed by knockback', () => {
     for (const attack of ['paw', 'tail', 'pounce']) {
       const f = fixture(); f.battle();
-      if (attack === 'paw') f.player.reset([3, 0, -1.6]);
+      if (attack === 'paw') f.player.reset([0, 0, 0.4]);
       if (attack === 'tail') { f.level.puppy.pos = [0, 0, 0]; f.player.reset([1.2, 0, -3]); }
       if (attack === 'pounce') { f.player.reset([0, 0, 1]); f.level.pounceStart = [...f.level.puppy.pos]; f.level.target = [0, 0, 0]; }
       f.level.setMove(attack); f.step(0.4); assert.equal(f.level.flight, null, attack);
-      f.step(attack === 'pounce' ? 1.7 : 0.7); assert.ok(f.level.flight, attack);
+      f.step(attack === 'pounce' ? f.level.pounceWindup + f.level.pounceAirtime - 0.35 : 0.7); assert.ok(f.level.flight, attack);
     }
   });
   check('walking into a pit loses the attempt', () => {
-    const f = fixture(); f.battle(); f.player.reset([-8.3, 0, 3]); f.step(2.5);
+    const f = fixture(); f.battle(); f.player.reset([-12.5, 0, 3]); f.step(2.5);
     assert.equal(f.level.status, 'lost'); assert.equal(f.level.phase, 'dead');
+    const shot = f.level.cameraShot(); assert.ok(shot.pos[1] >= 3.2); assert.ok(shot.target[1] < 0);
+    f.step(1); assert.ok(f.level.cameraShot().pos[1] >= 3.2, 'pit camera must stay above the floor');
   });
   check('a valid airborne crossing squeezes player and exits', () => {
     const f = fixture(); f.battle(); f.level.hoopTime = 0;
@@ -115,7 +117,9 @@ try {
     const moves = [];
     for (let i = 0; i < 7; i++) {
       f.player.reset([0, 0, 0.4]); f.level.puppy.pos = [0, 0, -3.4]; f.level.puppy.yaw = 0;
-      f.level.setMove('chase'); f.step(0.9); moves.push(f.level.move);
+      f.level.setMove('chase');
+      for (let t = 0; t < 3 && f.level.move === 'chase'; t += 0.05) f.step(0.05);
+      moves.push(f.level.move);
     }
     assert.deepEqual(moves, ['pounce', 'paw', 'lick', 'pounce', 'paw', 'pounce', 'lick']);
     assert.equal(moves.filter(m => m === 'pounce').length, 3);
@@ -129,6 +133,46 @@ try {
     f.step(1.5); shot = f.level.cameraShot();
     assert.ok(shot.pos[1] - shot.target[1] > 7);
     assert.ok(Math.hypot(shot.pos[0] - shot.target[0], shot.pos[2] - shot.target[2]) < 3);
+  });
+  check('front paw really crosses the center, while stepping back clears the arc', () => {
+    assert.ok(Math.abs(rules.pawSweepPoint(1, 0.5)[0]) < 0.01);
+    const f = fixture(); f.battle(); f.player.reset([0, 0, 3.2]); f.level.setMove('paw');
+    f.step(1.3); assert.equal(f.level.flight, null);
+  });
+  check('pounce timing varies but always gives a readable bow and a fast jump', () => {
+    const f = fixture(); f.battle(); const times = [];
+    for (let i = 0; i < 12; i++) {
+      f.level.setMove('pounce'); times.push(f.level.pounceWindup);
+      assert.ok(f.level.pounceWindup >= 0.48 && f.level.pounceWindup <= 0.88);
+      assert.ok(f.level.pounceAirtime >= 0.44 && f.level.pounceAirtime <= 0.54);
+    }
+    assert.ok(Math.max(...times) - Math.min(...times) > 0.05);
+  });
+  check('rim rejects a clip in either direction but leaves the opening clear', () => {
+    const y = rules.HOOP_Y, z = rules.HOOP_Z;
+    assert.ok(rules.rimImpact([2, y + 2, z], [2, y - 2, z], 0, 0));
+    assert.ok(rules.rimImpact([2, y - 2, z], [2, y + 2, z], 0, 0));
+    assert.equal(rules.rimImpact([0, y + 2, z], [0, y - 2, z], 0, 0), null);
+    assert.equal(rules.rimImpact([4, y + 2, z], [4, y - 2, z], 0, 0), null);
+  });
+  check('rim contact creates an intact physical ragdoll and recovers from its landing', () => {
+    const f = fixture(); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30;
+    // Clip the inward-facing edge with clear floor below; an outward edge can throw us into a pit.
+    f.level.hoopTime = 5.4; f.step(0.01);
+    f.player.pos = [rules.hoopX(f.level.hoopTime) + 2, rules.HOOP_Y + 1.2, rules.HOOP_Z];
+    f.player.mode = 'flying'; f.player.flightStyle = 'flail'; f.player.flightDir = [0, 1, 0];
+    f.level.flight = [0, -6, 0]; f.level.highFlight = true;
+    f.step(0.1); assert.equal(f.player.mode, 'ragdoll'); assert.equal(f.level.tumbling, true);
+    assert.equal(f.player.body.brokenJoints, 0); assert.equal(f.level.flight, null);
+    f.step(8);
+    assert.equal(f.level.phase, 'play'); assert.equal(f.player.mode, 'control');
+    assert.equal(f.player.body.brokenJoints, 0); assert.ok(f.player.pos[1] >= -0.1);
+  });
+  check('closed vault keeps the entire puppy behind the bars', () => {
+    const f = fixture(), draws = []; f.level.puppy.draw(draws);
+    // Every ellipsoid is bounded by the sum of its transformed local radii on z.
+    const front = Math.max(...draws.map(d => d.model[14] + Math.abs(d.model[2]) + Math.abs(d.model[6]) + Math.abs(d.model[10])));
+    assert.ok(front < -6.55, `puppy front ${front} must stay behind gate`);
   });
   for (const world of worlds) world.dispose();
   console.log(`${count} puppy checks passed`);

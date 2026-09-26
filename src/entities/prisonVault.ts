@@ -14,14 +14,14 @@ export class PrisonVault {
       this.scenery.push({ mesh: 'box', model: mul(translation(p), scaling(size)), color });
       if (collider) physics.addStaticBox(p, size);
     };
-    box([-7.6, 4.5, -9.2], [1.2, 9, 5.5], METAL);
-    box([7.6, 4.5, -9.2], [1.2, 9, 5.5], METAL);
-    box([0, 8.85, -9.2], [16.4, 0.75, 5.6], METAL);
-    box([0, 4.4, -11.6], [15, 8.7, 0.4], BLACK);
+    box([-7.6, 4.5, -10.1], [1.2, 9, 7.4], METAL);
+    box([7.6, 4.5, -10.1], [1.2, 9, 7.4], METAL);
+    box([0, 8.85, -10.1], [16.4, 0.75, 7.8], METAL);
+    box([0, 4.4, -13.7], [15, 8.7, 0.4], BLACK);
     box([0, 8.1, -6.28], [16.1, 1.0, 0.75], EDGE);
     box([-7.9, 4.0, -6.35], [0.48, 8, 0.8], EDGE);
     box([7.9, 4.0, -6.35], [0.48, 8, 0.8], EDGE);
-    box([0, 0.08, -8.9], [14.3, 0.15, 5.5], BLACK, false);
+    box([0, 0.08, -10.1], [14.3, 0.15, 7.5], BLACK, false);
     // Bolted faceplate, inset panels, floor anchors and external hydraulic pistons.
     for (const s of [-1, 1]) {
       box([s * 8.0, 0.22, -5.8], [1.45, 0.44, 1.7], METAL);

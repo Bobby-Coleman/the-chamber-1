@@ -6,7 +6,6 @@ import { HOLE_PLATE_RATIO, Pattern, TUBE_INNER_RATIO, type DrawItem } from '../e
 export const CHAMBER_HALF = 12;
 export const WALL_HEIGHT = 10;
 const WALL_THICKNESS = 1;
-const NORTH_Z = -CHAMBER_HALF - WALL_THICKNESS / 2;
 
 const WALL = [0.86, 0.87, 0.88];
 const FLOOR = [0.6, 0.61, 0.63];
@@ -15,6 +14,8 @@ const HOLE_RIM = [0.85, 0.06, 0.04];
 
 /** Per-level tweaks to the standard chamber. */
 export interface ChamberOptions {
+  /** Optional half-width/depth. Existing levels keep the standard 24m room. */
+  halfSize?: number;
   /** A round hole through the north wall, centred at (x, y) on the wall, with this radius (m). */
   hole?: { x: number; y: number; radius: number };
   /** Rectangular holes through the floor; levels draw their own pit walls / bottoms. */
@@ -30,26 +31,28 @@ interface WallBox {
 
 /** The chamber's boxes: ground, floor and walls (the north wall split around the hole, if any). */
 function chamberBoxes(opts: ChamberOptions): WallBox[] {
-  const size = CHAMBER_HALF * 2;
+  const half = opts.halfSize ?? CHAMBER_HALF;
+  const size = half * 2;
+  const northZ = -half - WALL_THICKNESS / 2;
   const h = WALL_HEIGHT;
   const bottom = -0.2, top = h;
   const wy = (bottom + top) / 2;
   const boxes: WallBox[] = [
     { pos: [0, -0.6, 0], size: [900, 1, 900], color: OUTSIDE, panel: 8 },
     { pos: [0, -0.25, 0], size: [size, 0.5, size], color: FLOOR, panel: 2 },
-    { pos: [0, wy, CHAMBER_HALF + 0.5], size: [size + 2, h + 0.2, WALL_THICKNESS], color: WALL, panel: 2 },
-    { pos: [-CHAMBER_HALF - 0.5, wy, 0], size: [WALL_THICKNESS, h + 0.2, size], color: WALL, panel: 2 },
-    { pos: [CHAMBER_HALF + 0.5, wy, 0], size: [WALL_THICKNESS, h + 0.2, size], color: WALL, panel: 2 },
+    { pos: [0, wy, half + 0.5], size: [size + 2, h + 0.2, WALL_THICKNESS], color: WALL, panel: 2 },
+    { pos: [-half - 0.5, wy, 0], size: [WALL_THICKNESS, h + 0.2, size], color: WALL, panel: 2 },
+    { pos: [half + 0.5, wy, 0], size: [WALL_THICKNESS, h + 0.2, size], color: WALL, panel: 2 },
   ];
   if (opts.pits?.length) {
     // Replace both the chamber floor and the ground underneath it, so pits are real openings.
     boxes.splice(0, 2);
     for (const s of [-1, 1]) {
-      boxes.push({ pos: [s * 231, -0.6, 0], size: [438, 1, 900], color: OUTSIDE, panel: 8 });
-      boxes.push({ pos: [0, -0.6, s * 231], size: [24, 1, 438], color: OUTSIDE, panel: 8 });
+      boxes.push({ pos: [s * (450 + half) / 2, -0.6, 0], size: [450 - half, 1, 900], color: OUTSIDE, panel: 8 });
+      boxes.push({ pos: [0, -0.6, s * (450 + half) / 2], size: [size, 1, 450 - half], color: OUTSIDE, panel: 8 });
     }
-    const xs = [...new Set([-CHAMBER_HALF, CHAMBER_HALF, ...opts.pits.flatMap(p => [p.x - p.width / 2, p.x + p.width / 2])])].sort((a, b) => a - b);
-    const zs = [...new Set([-CHAMBER_HALF, CHAMBER_HALF, ...opts.pits.flatMap(p => [p.z - p.depth / 2, p.z + p.depth / 2])])].sort((a, b) => a - b);
+    const xs = [...new Set([-half, half, ...opts.pits.flatMap(p => [p.x - p.width / 2, p.x + p.width / 2])])].sort((a, b) => a - b);
+    const zs = [...new Set([-half, half, ...opts.pits.flatMap(p => [p.z - p.depth / 2, p.z + p.depth / 2])])].sort((a, b) => a - b);
     for (let zi = 1; zi < zs.length; zi++) {
       const z = (zs[zi - 1] + zs[zi]) / 2;
       let start: number | null = null;
@@ -66,16 +69,16 @@ function chamberBoxes(opts: ChamberOptions): WallBox[] {
     }
   }
   const hole = opts.hole;
-  const left = -CHAMBER_HALF - 1, right = CHAMBER_HALF + 1;
+  const left = -half - 1, right = half + 1;
   if (!hole) {
-    boxes.push({ pos: [0, wy, NORTH_Z], size: [size + 2, h + 0.2, WALL_THICKNESS], color: WALL, panel: 2 });
+    boxes.push({ pos: [0, wy, northZ], size: [size + 2, h + 0.2, WALL_THICKNESS], color: WALL, panel: 2 });
     return boxes;
   }
   // North wall as four pieces around a square opening that the hole plate fills.
-  const half = plateSide(hole.radius) / 2;
-  const x0 = hole.x - half, x1 = hole.x + half, y0 = hole.y - half, y1 = hole.y + half;
+  const holeHalf = plateSide(hole.radius) / 2;
+  const x0 = hole.x - holeHalf, x1 = hole.x + holeHalf, y0 = hole.y - holeHalf, y1 = hole.y + holeHalf;
   const piece = (xa: number, xb: number, ya: number, yb: number) =>
-    boxes.push({ pos: [(xa + xb) / 2, (ya + yb) / 2, NORTH_Z], size: [xb - xa, yb - ya, WALL_THICKNESS], color: WALL, panel: 2 });
+    boxes.push({ pos: [(xa + xb) / 2, (ya + yb) / 2, northZ], size: [xb - xa, yb - ya, WALL_THICKNESS], color: WALL, panel: 2 });
   piece(left, x0, bottom, top);
   piece(x1, right, bottom, top);
   piece(x0, x1, bottom, y0);
@@ -98,7 +101,7 @@ export function drawChamber(out: DrawItem[], opts: ChamberOptions = {}) {
   }
   const hole = opts.hole;
   if (hole) {
-    const center: Vec3 = [hole.x, hole.y, NORTH_Z];
+    const center: Vec3 = [hole.x, hole.y, -(opts.halfSize ?? CHAMBER_HALF) - WALL_THICKNESS / 2];
     const side = plateSide(hole.radius);
     out.push({ mesh: 'holeplate', model: mul(translation(center), scaling([side, side, WALL_THICKNESS])), color: WALL, spec: 0.15 });
     // Red rim ringing the hole on both faces of the wall.
@@ -124,7 +127,7 @@ export function addChamberColliders(physics: Physics, opts: ChamberOptions = {})
   const len = ((2 * Math.PI * r) / sides) * 1.15;
   for (let i = 0; i < sides; i++) {
     const a = (i / sides) * Math.PI * 2;
-    const pos: Vec3 = [hole.x + Math.cos(a) * r, hole.y + Math.sin(a) * r, NORTH_Z];
+    const pos: Vec3 = [hole.x + Math.cos(a) * r, hole.y + Math.sin(a) * r, -(opts.halfSize ?? CHAMBER_HALF) - WALL_THICKNESS / 2];
     const q = { x: 0, y: 0, z: Math.sin(a / 2), w: Math.cos(a / 2) };
     physics.addStaticBox(pos, [thick, len, WALL_THICKNESS], q);
   }

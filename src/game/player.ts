@@ -566,6 +566,29 @@ export class Player {
     }
   }
 
+  /** Switch scripted flight to a live, intact ragdoll. The owning level decides when to recover. */
+  startTumble(velocity: Vec3, spin: Vec3) {
+    if (!this.body || this.inPortal) return;
+    this.pose = this.computePose();
+    this.body.teleport(poseFrames(this.scriptedRoot(), this.pose), velocity);
+    this.body.setEnabled(true);
+    this.body.muscle = 0;
+    this.body.setSelfCollision(true);
+    this.body.parts.chest.setAngvel({ x: spin[0], y: spin[1], z: spin[2] }, true);
+    this.mode = 'ragdoll';
+    this.collider?.setEnabled(false);
+  }
+
+  /** Get up from the actual settled body position, without snapping the limbs to an animation. */
+  recoverTumble(feet: Vec3) {
+    if (!this.body || this.body.brokenJoints > 0) return;
+    this.pos = [...feet]; this.vel = [0, 0, 0]; this.driveFeet = [...feet]; this.driveVel = [0, 0, 0];
+    this.mode = 'control'; this.onGround = false;
+    this.body.muscle = STUNNED_MUSCLE; this.stun = 0.2;
+    this.gettingUp = true; this.getUpTime = 0; this.knockGrace = KNOCK_GRACE_TIME;
+    this.collider?.setEnabled(true);
+  }
+
   /**
    * Goes limp with the given extra velocity (m/s). Comic deaths use this. Violent enough deaths
    * (`violence`, default the launch speed) can tear the body apart, more so near `origin`.

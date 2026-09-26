@@ -4,10 +4,10 @@ import { drawPortal, PORTAL_SQUEEZE_TIME, PortalArrival } from '../../entities/p
 import { PrisonVault } from '../../entities/prisonVault';
 import { Button } from '../../entities/props';
 import { Puppy } from '../../entities/puppy';
-import { drawPortalArm } from '../../entities/portalArm';
+import { drawPortalArm, PortalRim } from '../../entities/portalArm';
 import { preparePuppyAudio, puppySound } from '../../entities/puppyAudio';
 import { type CameraShot, type Level, type LevelContext, type LevelStatus, type WorldLabel } from '../level';
-import { FLIGHT_GRAVITY, HOOP_RADIUS, HOOP_Y, HOOP_Z, hoopCrossing, hoopX, inPit, LICK_WINDUP, lickVelocity, PITS } from './mechanics';
+import { FLIGHT_GRAVITY, HOOP_RADIUS, HOOP_Y, HOOP_Z, hoopCrossing, hoopX, inPit, LICK_WINDUP, lickVelocity, PAW_SWEEP_TIME, PAW_WINDUP, pawSweepPoint, PITS, rimImpact } from './mechanics';
 
 type Phase = 'sealed' | 'opening' | 'reveal' | 'play' | 'escape' | 'dead';
 type Move = 'chase' | 'lick' | 'paw' | 'pounce' | 'tail' | 'recover';
@@ -23,10 +23,11 @@ const ENV: Environment = {
 export class PuppyLevel implements Level {
   readonly number = 4;
   readonly title = 'Good Boy';
-  readonly chamber = { pits: PITS };
+  readonly chamber = { pits: PITS, halfSize: 14 };
   status: LevelStatus = 'playing';
   private arrival: PortalArrival;
   private vault: PrisonVault;
+  private rim: PortalRim;
   private puppy = new Puppy();
   private phase: Phase = 'sealed';
   private phaseTime = 0;
@@ -52,13 +53,24 @@ export class PuppyLevel implements Level {
   private flightCamera: CameraShot | null = null;
   private landingCameraTime = 0;
   private highFlight = false;
-  private bodyObstacle = [{ x: 0, z: -9.5, r: 1.85 }];
+  private bodyObstacle = [{ x: 0, z: -10.5, r: 1.85 }];
+  private approachTarget: Vec3 = [0, 0, -3.4];
+  private approachLook: Vec3 = [0, 0, 0];
+  private pawStart: Vec3 = [0, 0, 0];
+  private tumbling = false;
+  private tumbleTime = 0;
+  private settledTime = 0;
+  private pitCamera: CameraShot | null = null;
+  private pounceWindup = 0.72;
+  private pounceAirtime = 0.5;
+  private nextBark = 3;
 
   constructor(private ctx: LevelContext) {
     ctx.hud.setLevel('The Chamber · Level 4');
     ctx.hud.hint('');
     this.arrival = new PortalArrival(ctx, [0, 0, 6.5]);
     this.vault = new PrisonVault(ctx.physics);
+    this.rim = new PortalRim(ctx.physics, [hoopX(0), HOOP_Y, HOOP_Z], HOOP_RADIUS);
     new Button(ctx.physics, BUTTON, [0.87, 0.045, 0.018], () => this.release());
     this.buildRoom();
     preparePuppyAudio();
@@ -67,10 +79,23 @@ export class PuppyLevel implements Level {
   private buildRoom() {
     const box = (p: Vec3, size: Vec3, color: number[], emissive = false) => this.scenery.push({ mesh: 'box', model: mul(translation(p), scaling(size)), color, pattern: emissive ? Pattern.emissive : Pattern.plain });
     for (const p of PITS) {
-      box([p.x, -4.2, p.z], [p.width, 0.1, p.depth], [0, 0, 0], true);
+      // A deep shaft with progressively darker walls, rather than a shallow black tray.
+      box([p.x, -38, p.z], [p.width, 0.1, p.depth], [0, 0, 0], true);
       for (const s of [-1, 1]) {
-        box([p.x + s * p.width / 2, -2, p.z], [0.12, 4, p.depth], [0.06, 0.065, 0.08]);
-        box([p.x, -2, p.z + s * p.depth / 2], [p.width, 4, 0.12], [0.06, 0.065, 0.08]);
+        this.ctx.physics.addStaticBox([p.x + s * (p.width / 2 + 0.06), -18, p.z], [0.12, 36, p.depth]);
+        this.ctx.physics.addStaticBox([p.x, -18, p.z + s * (p.depth / 2 + 0.06)], [p.width, 36, 0.12]);
+        for (let depth = 0; depth < 36; depth += 3) {
+          const shade = 0.12 * Math.exp(-depth / 5);
+          box([p.x + s * p.width / 2, -depth - 1.5, p.z], [0.12, 3.04, p.depth], [shade, shade * 1.1, shade * 1.3], true);
+          box([p.x, -depth - 1.5, p.z + s * p.depth / 2], [p.width, 3.04, 0.12], [shade, shade * 1.1, shade * 1.3], true);
+        }
+        // Steel lips, inset retaining ribs and low lamps give a visible sense of scale/depth.
+        box([p.x + s * p.width / 2, -0.18, p.z], [0.18, 0.36, p.depth], [0.19, 0.23, 0.28]);
+        box([p.x, -0.18, p.z + s * p.depth / 2], [p.width, 0.36, 0.18], [0.19, 0.23, 0.28]);
+        for (let z = -p.depth / 2 + 1; z < p.depth / 2; z += 3) {
+          box([p.x + s * (p.width / 2 - 0.04), -2.5, p.z + z], [0.1, 4.8, 0.14], [0.06, 0.08, 0.1], true);
+          box([p.x + s * (p.width / 2 - 0.1), -2.2, p.z + z], [0.06, 0.14, 0.26], [0.16, 0.25, 0.32], true);
+        }
         box([p.x + s * (p.width / 2 + 0.1), 0.025, p.z], [0.20, 0.05, p.depth + 0.4], [0.93, 0.43, 0.025], true);
         box([p.x, 0.025, p.z + s * (p.depth / 2 + 0.1)], [p.width, 0.05, 0.20], [0.93, 0.43, 0.025], true);
         box([p.x + s * p.width / 2, -1.1, p.z], [0.04, 0.08, p.depth], [0.7, 0.02, 0.01], true);
@@ -101,6 +126,8 @@ export class PuppyLevel implements Level {
     this.arrival.update(dt);
     const beforeHoop = this.hoopTime;
     if (this.phase !== 'escape') this.hoopTime += dt;
+    this.rim.move([hoopX(this.hoopTime), HOOP_Y, HOOP_Z]);
+    this.updatePitCamera();
     if (this.phase === 'dead') {
       if (this.phaseTime > 1.2) this.status = 'lost';
       return;
@@ -110,7 +137,8 @@ export class PuppyLevel implements Level {
       if (this.phaseTime > PORTAL_SQUEEZE_TIME + 0.7) this.status = 'exited';
       return;
     }
-    if (this.flight) this.updateFlight(dt, beforeHoop);
+    if (this.tumbling) this.updateTumble(dt);
+    else if (this.flight) this.updateFlight(dt, beforeHoop);
     else if (player.pos[1] < -1.8) this.die();
     if (this.phase === 'dead' as Phase || this.phase === 'escape' as Phase) return;
     switch (this.phase) {
@@ -121,7 +149,7 @@ export class PuppyLevel implements Level {
         break;
       case 'reveal': {
         const k = easeInOut(clamp(this.phaseTime / 4.4, 0, 1));
-        this.puppy.pos[2] = lerp(-9.5, -3.4, k);
+        this.puppy.pos[2] = lerp(-10.5, -3.4, k);
         this.puppy.pose = this.phaseTime < 4.4 ? 'walk' : 'happy';
         if (this.phaseTime - dt < 2.8 && this.phaseTime >= 2.8) this.ctx.hud.hint('“Oh. A puppy. Aw, that’s not so bad.”');
         if (this.phaseTime > 4.9) { this.phase = 'play'; this.phaseTime = 0; this.setMove('chase'); this.ctx.hud.hint(''); }
@@ -133,8 +161,51 @@ export class PuppyLevel implements Level {
 
   private setMove(move: Move) {
     this.move = move; this.moveTime = 0; this.attackHit = false;
-    this.puppy.charge = 0; this.puppy.tongue = 0; this.puppy.stroke = 0; this.puppy.airborne = 0;
+    this.puppy.charge = 0; this.puppy.tongue = 0; this.puppy.stroke = 0; this.puppy.airborne = 0; this.puppy.pawSweep = 0;
+    this.puppy.jumpPhase = 0;
     this.dogSpeed = 0;
+    if (move === 'chase') this.planApproach();
+    if (move === 'paw') this.pawStart = [...this.puppy.pos];
+    if (move === 'pounce') {
+      this.pounceWindup = 0.48 + Math.random() * 0.4;
+      this.pounceAirtime = 0.44 + Math.random() * 0.1;
+    }
+  }
+
+  private bark() { this.puppy.bark(); puppySound('bark'); }
+
+  private updatePitCamera() {
+    const { player, camera } = this.ctx;
+    const height = this.flight || this.tumbling ? 0.9 : -0.15;
+    if (!this.pitCamera && this.arrival.done && player.pos[1] < height && inPit(player.pos[0], player.pos[2])) {
+      const from = camera.pos ?? add(player.pos, [0.6, 3.2, 3.1]);
+      this.pitCamera = {
+        pos: [clamp(from[0], -13.5, 13.5), Math.max(3.2, from[1]), clamp(from[2], -13.5, 13.5)],
+        target: [player.pos[0], -2, player.pos[2]], sharpness: 7,
+      };
+    }
+    if (this.pitCamera) this.pitCamera.target = [player.pos[0], Math.max(-7, player.pos[1] + 0.8), player.pos[2]];
+  }
+
+  /** Pick a short run once, then commit. The dog does not continuously home in on the player. */
+  private planApproach() {
+    const dog = this.puppy, p = this.ctx.player.pos;
+    const d = normalize([p[0] - dog.pos[0], 0, p[2] - dog.pos[2]]);
+    const side = this.attackIndex % 2 === 0 ? 1 : -1;
+    const scheduled = ATTACK_CYCLE[this.attackIndex % ATTACK_CYCLE.length];
+    this.approachLook = [...p];
+    this.approachTarget = scheduled === 'pounce'
+      ? [dog.pos[0] + d[2] * side * 1.2 + d[0] * 0.8, 0, dog.pos[2] - d[0] * side * 1.2 + d[2] * 0.8]
+      : [p[0] - d[0] * 3.8, 0, p[2] - d[2] * 3.8];
+    this.approachTarget[0] = clamp(this.approachTarget[0], -5.8, 5.8);
+    this.approachTarget[2] = clamp(this.approachTarget[2], -3.4, 5.0);
+  }
+
+  private turnDog(yaw: number, dt: number) {
+    const dog = this.puppy;
+    const delta = Math.atan2(Math.sin(yaw - dog.yaw), Math.cos(yaw - dog.yaw));
+    dog.yaw += clamp(delta, -3.8 * dt, 3.8 * dt);
+    return Math.abs(delta);
   }
 
   private localPlayer() {
@@ -161,6 +232,10 @@ export class PuppyLevel implements Level {
     const { player, camera } = this.ctx;
     const dog = this.puppy;
     this.moveTime += dt;
+    this.nextBark -= dt;
+    if (this.nextBark <= 0 && (this.move === 'chase' || this.move === 'recover')) {
+      this.bark(); this.nextBark = 3.5 + Math.random() * 3;
+    }
     const local = this.localPlayer();
     const grounded = !this.flight && player.mode === 'control' && player.pos[1] < 2.5;
     switch (this.move) {
@@ -170,22 +245,20 @@ export class PuppyLevel implements Level {
         const scheduled = ATTACK_CYCLE[this.attackIndex % ATTACK_CYCLE.length];
         // A rear approach can provoke a sweep, while the overall pattern still advances.
         if (local.distance < 5.0 && local.front < -0.7 && this.moveTime > 0.6) { this.beginAttack('tail'); break; }
-        dog.yaw = approachAngle(dog.yaw, Math.atan2(player.pos[0] - dog.pos[0], player.pos[2] - dog.pos[2]), dt * 1.7);
-        if (this.moveTime > 0.8 && (scheduled === 'pounce' || (local.distance > 8 && this.moveTime > 1.5))) {
-          this.beginAttack('pounce'); break;
-        }
-        if (scheduled === 'paw' && local.distance < 5 && this.moveTime > 0.7) {
-          this.beginAttack('paw'); break;
-        }
-        if (local.distance > 4.1) {
-          const f = dog.forward;
-          const desired = Math.min(2.8, Math.max(0, (local.distance - 3.8) * 1.5));
-          this.dogSpeed += (desired - this.dogSpeed) * (1 - Math.exp(-dt * 3.5));
-          dog.pos[0] = clamp(dog.pos[0] + f[0] * dt * this.dogSpeed, -5, 5);
-          dog.pos[2] = clamp(dog.pos[2] + f[2] * dt * this.dogSpeed, -3.4, 4.4);
+        const dx = this.approachTarget[0] - dog.pos[0], dz = this.approachTarget[2] - dog.pos[2];
+        const remaining = Math.hypot(dx, dz);
+        if (remaining > 0.20 && this.moveTime < 1.4) {
+          const angle = this.turnDog(Math.atan2(dx, dz), dt);
+          const desired = angle < 0.8 ? Math.min(4.2, remaining * 5) : 0;
+          this.dogSpeed += (desired - this.dogSpeed) * (1 - Math.exp(-dt * 9));
+          const f = dog.forward, travel = Math.min(remaining, this.dogSpeed * dt);
+          dog.pos[0] += f[0] * travel; dog.pos[2] += f[2] * travel;
         } else {
           dog.pose = 'idle';
-          if (scheduled === 'lick' && this.moveTime > 0.7 && local.front > 1.4) this.beginAttack('lick');
+          const angle = this.turnDog(Math.atan2(this.approachLook[0] - dog.pos[0], this.approachLook[2] - dog.pos[2]), dt);
+          if (this.moveTime > 0.7 && (angle < 0.15 || this.moveTime > 2.1)) {
+            this.beginAttack(local.distance > 7 ? 'pounce' : scheduled);
+          }
         }
         break;
       }
@@ -209,16 +282,22 @@ export class PuppyLevel implements Level {
       }
       case 'paw': {
         dog.pose = 'paw';
-        dog.charge = this.moveTime < 0.85 ? this.moveTime / 0.85 : Math.max(0, 1 - (this.moveTime - 0.85) * 3);
-        if (this.moveTime >= 0.85 && !this.attackHit) {
-          this.attackHit = true;
-          if (grounded && local.distance < 5.3 && local.front > -1.3 && this.immunity <= 0) {
-            const f = dog.forward, side = dog.pawSide;
-            puppySound('bark');
+        if (this.moveTime < 0.28) this.turnDog(Math.atan2(player.pos[0] - dog.pos[0], player.pos[2] - dog.pos[2]), dt);
+        const sweep = clamp((this.moveTime - PAW_WINDUP) / PAW_SWEEP_TIME, 0, 1);
+        dog.charge = this.moveTime < PAW_WINDUP ? easeInOut(this.moveTime / PAW_WINDUP) : 1 - easeInOut(clamp((this.moveTime - PAW_WINDUP - PAW_SWEEP_TIME) / 0.35, 0, 1));
+        dog.pawSweep = sweep;
+        const f = dog.forward, lunge = easeInOut(sweep) * 0.75;
+        dog.pos[0] = this.pawStart[0] + f[0] * lunge; dog.pos[2] = this.pawStart[2] + f[2] * lunge;
+        if (this.moveTime >= PAW_WINDUP && this.moveTime <= PAW_WINDUP + PAW_SWEEP_TIME && !this.attackHit) {
+          const hit = this.localPlayer(), arc = pawSweepPoint(dog.pawSide, sweep);
+          if (grounded && Math.hypot(hit.side - arc[0], hit.front - arc[2]) < 1.05 && this.immunity <= 0) {
+            this.attackHit = true;
+            const side = -dog.pawSide;
+            this.bark();
             this.launch([f[2] * side * 10 + f[0] * 2, 7, -f[0] * side * 10 + f[2] * 2], false);
           }
         }
-        if (this.moveTime > 1.35) { this.recoverTime = 1.6; this.setMove('recover'); }
+        if (this.moveTime > PAW_WINDUP + PAW_SWEEP_TIME + 0.4) { this.recoverTime = 1.6; this.setMove('recover'); }
         break;
       }
       case 'tail': {
@@ -235,14 +314,20 @@ export class PuppyLevel implements Level {
       }
       case 'pounce': {
         dog.pose = 'pounce';
-        const windup = 1.15, airtime = 0.78;
+        const windup = this.pounceWindup, airtime = this.pounceAirtime;
         const k = clamp((this.moveTime - windup) / airtime, 0, 1);
-        dog.charge = this.moveTime < windup ? easeInOut(clamp(this.moveTime / 0.85, 0, 1)) : k < 1 ? 0 : Math.sin(clamp((this.moveTime - windup - airtime) / 0.45, 0, 1) * Math.PI) * 0.6;
-        if (this.moveTime - dt < 0.78 && this.moveTime >= 0.78) puppySound('bark');
+        dog.jumpPhase = k;
+        dog.charge = this.moveTime < windup ? easeInOut(clamp(this.moveTime / (windup * 0.8), 0, 1)) : k < 1 ? 0 : Math.sin(clamp((this.moveTime - windup - airtime) / 0.3, 0, 1) * Math.PI) * 0.7;
+        // Track only the first half of the bow. The last moment remains a fair dodge window.
+        if (this.moveTime < windup * 0.5) {
+          this.target = [clamp(player.pos[0] + player.vel[0] * 0.12, -6, 6), 0, clamp(player.pos[2] + player.vel[2] * 0.12, -2.2, 7.5)];
+          this.turnDog(Math.atan2(this.target[0] - dog.pos[0], this.target[2] - dog.pos[2]), dt);
+        }
+        if (this.moveTime - dt < windup * 0.58 && this.moveTime >= windup * 0.58) this.bark();
         if (this.moveTime >= windup) {
           const travel = k;
           dog.pos = [lerp(this.pounceStart[0], this.target[0], travel), 0, lerp(this.pounceStart[2], this.target[2], travel)];
-          dog.airborne = 4 * k * (1 - k) * 3.2;
+          dog.airborne = 4 * k * (1 - k) * 2.6;
         }
         if (k >= 1 && !this.attackHit) {
           this.attackHit = true; camera.addShake(0.28); puppySound('land');
@@ -253,12 +338,12 @@ export class PuppyLevel implements Level {
             this.launch([Math.sin(angle) * speed, 8 + Math.random() * 2, Math.cos(angle) * speed], false);
           }
         }
-        if (this.moveTime > 2.6) { this.recoverTime = 1.8; this.setMove('recover'); }
+        if (this.moveTime > windup + airtime + 0.32) { this.recoverTime = 0.65 + Math.random() * 0.5; this.setMove('recover'); }
         break;
       }
       case 'recover':
         dog.pose = 'happy';
-        if (this.moveTime > this.recoverTime && !this.flight && !player.gettingUp && this.immunity <= 0) this.setMove('chase');
+        if (this.moveTime > this.recoverTime && !this.flight && !this.tumbling && !player.gettingUp && this.immunity <= 0) this.setMove('chase');
         break;
     }
     // A solid body stops the character walking inside the puppy, without invisible launch hits.
@@ -310,11 +395,17 @@ export class PuppyLevel implements Level {
     player.vel = [...v];
     const spin = Math.max(0, 1 - this.flightTime * 2.5);
     player.flightDir = normalize([v[0] * 0.15 + Math.sin(this.flightTime * 20) * spin, 1, v[2] * 0.12]);
-    const p = player.pos;
-    const lead = v[1] / 14;
-    const ascentPos: Vec3 = [p[0] + Math.sin(this.flightYaw) * 3.4, p[1] + 1.9 + lead, p[2] + Math.cos(this.flightYaw) * 3.4];
-    const overheadTarget: Vec3 = [lerp(p[0], hoopX(this.hoopTime), 0.15), p[1] - 2.0 + lead, lerp(p[2], HOOP_Z, 0.15)];
-    this.flightCamera = { pos: lerp3(ascentPos, [overheadTarget[0], p[1] + 8.5 + lead, overheadTarget[2] + 1.5], this.flightViewBlend), target: lerp3(add(p, [0, 0.35 + lead, 0]), overheadTarget, this.flightViewBlend), sharpness: 14 };
+    this.aimFlightCamera(player.pos, v);
+    const rimHit = rimImpact(old, player.pos, beforeHoop, this.hoopTime);
+    if (rimHit) {
+      player.pos = rimHit;
+      const dx = rimHit[0] - hoopX(this.hoopTime), dz = rimHit[2] - HOOP_Z;
+      player.startTumble(v, [dz * 2.4, 1.2, -dx * 2.4]);
+      this.flight = null; this.tumbling = true; this.tumbleTime = 0; this.settledTime = 0;
+      camera.addShake(0.3);
+      this.ctx.hud.hint('Oof. Caught the rim.');
+      return;
+    }
     if (hoopCrossing(old, player.pos, beforeHoop, this.hoopTime)) {
       this.phase = 'escape'; this.phaseTime = 0; this.flight = null;
       player.pos = [hoopX(this.hoopTime), HOOP_Y, HOOP_Z];
@@ -323,7 +414,7 @@ export class PuppyLevel implements Level {
       return;
     }
     // Chamber walls and the vault remain solid during scripted flight.
-    const wall = 11.25;
+    const wall = this.chamber.halfSize - 0.75;
     for (const axis of [0, 2] as const) {
       if (Math.abs(player.pos[axis]) > wall) {
         player.pos[axis] = clamp(player.pos[axis], -wall, wall);
@@ -343,6 +434,35 @@ export class PuppyLevel implements Level {
       return;
     }
     if (player.pos[1] < -2.0) this.die();
+  }
+
+  private aimFlightCamera(p: Vec3, v: Vec3) {
+    const lead = v[1] / 14;
+    const ascentPos: Vec3 = [p[0] + Math.sin(this.flightYaw) * 3.4, p[1] + 1.9 + lead, p[2] + Math.cos(this.flightYaw) * 3.4];
+    const overheadTarget: Vec3 = [lerp(p[0], hoopX(this.hoopTime), 0.15), p[1] - 2.0 + lead, lerp(p[2], HOOP_Z, 0.15)];
+    this.flightCamera = { pos: lerp3(ascentPos, [overheadTarget[0], p[1] + 8.5 + lead, overheadTarget[2] + 1.5], this.flightViewBlend), target: lerp3(add(p, [0, 0.35 + lead, 0]), overheadTarget, this.flightViewBlend), sharpness: 14 };
+  }
+
+  private updateTumble(dt: number) {
+    const { player, physics, camera } = this.ctx;
+    const body = player.body!;
+    this.tumbleTime += dt;
+    const p = body.position('pelvis'), velocity = body.parts.pelvis.linvel();
+    const v: Vec3 = [velocity.x, velocity.y, velocity.z];
+    this.flightViewBlend += ((this.highFlight ? easeInOut(clamp((9 - v[1]) / 15, 0, 1)) : 0) - this.flightViewBlend) * (1 - Math.exp(-dt * 4.5));
+    this.aimFlightCamera(p, v);
+    if (p[1] < -2) { this.die(); return; }
+    // Wait for the real body to land and settle; preserve its pose throughout the fall.
+    const ground = physics.raycast(p, [0, -1, 0], 1.05);
+    const landed = ground && ground.normal[1] > 0.6 && Math.hypot(...v) < 2.4;
+    this.settledTime = landed ? this.settledTime + dt : 0;
+    if (ground && this.tumbleTime > 0.6 && this.settledTime > 0.3) {
+      player.recoverTumble([p[0], ground.point[1] + 0.02, p[2]]);
+      this.tumbling = false; this.flightCamera = null; this.immunity = 2.1;
+      this.landingCameraTime = this.highFlight ? 0.8 : 0;
+      if (this.highFlight) camera.yaw = 0;
+      this.ctx.hud.hint('Still in one piece. Mostly dignity damage.');
+    }
   }
 
   private die() {
@@ -383,15 +503,21 @@ export class PuppyLevel implements Level {
       out.push({ mesh: 'roundbox', model: mul(root, translation([0, 0.026, 3.7]), scaling([1.35, 0.025, 1.4])), color: ready ? [0.35, 1, 0.75] : [0.7, 0.18, 0.35], pattern: Pattern.emissive, shadow: false });
       for (let i = 0; i < 3; i++) out.push({ mesh: 'sphere', model: mul(root, translation([(i - 1) * 0.4, 0.08, 4.7]), scaling([0.10, 0.05, 0.10])), color: this.moveTime > (i + 1) * 0.33 ? [0.35, 1, 0.75] : [0.15, 0.18, 0.18], pattern: Pattern.emissive, shadow: false });
     }
-    if (this.move === 'pounce' && this.moveTime < 1.93) {
+    if (this.move === 'pounce' && this.moveTime < this.pounceWindup + this.pounceAirtime) {
       for (let i = 0; i < 28; i++) {
         const a = i / 28 * Math.PI * 2;
         out.push({ mesh: 'box', model: mul(translation([this.target[0] + Math.cos(a) * 4.3, 0.04, this.target[2] + Math.sin(a) * 4.3]), rotationY(-a), scaling([0.23, 0.04, 0.12])), color: [1, 0.28, 0.05], pattern: Pattern.emissive, shadow: false });
       }
     }
-    if ((this.move === 'paw' || this.move === 'tail') && !this.attackHit) {
-      const s = this.move === 'paw' ? dog.pawSide : 1;
-      out.push({ mesh: 'box', model: mul(root, translation([s * 2.8, 0.04, this.move === 'paw' ? 1.5 : -2.9]), scaling([2.5, 0.035, 0.7])), color: [0.98, 0.42, 0.05], pattern: Pattern.emissive, shadow: false });
+    if (this.move === 'paw' && !this.attackHit) {
+      // The same path as the visible foot and hit window, across the entire front of the dog.
+      for (let i = 0; i <= 18; i++) {
+        const p = pawSweepPoint(dog.pawSide, i / 18);
+        out.push({ mesh: 'sphere', model: mul(root, translation([p[0], 0.04, p[2]]), scaling([0.17, 0.025, 0.17])), color: [0.98, 0.42, 0.05], pattern: Pattern.emissive, shadow: false });
+      }
+    }
+    if (this.move === 'tail' && !this.attackHit) {
+      out.push({ mesh: 'box', model: mul(root, translation([0, 0.04, -2.9]), scaling([5, 0.035, 0.7])), color: [0.98, 0.42, 0.05], pattern: Pattern.emissive, shadow: false });
     }
   }
 
@@ -402,16 +528,13 @@ export class PuppyLevel implements Level {
     return this.bodyObstacle;
   }
   labels(): WorldLabel[] {
-    return [
-      { pos: [0, 8.65, -5.8], text: 'CONTAINMENT  /  04', size: 0.48, color: '#c6c9cf' },
-      { pos: [0, 7.12, -5.8], text: 'DO NOT MAKE EYE CONTACT', size: 0.22, color: '#dd7451' },
-      { pos: [0, 1.75, 4.6], text: this.phase === 'sealed' ? 'RELEASE' : 'NO REFUNDS', size: 0.16, color: '#f5b27b' },
-    ];
+    return [];
   }
 
   cameraShot(): CameraShot | null {
     const arrival = this.arrival.cameraShot(); if (arrival) return arrival;
-    if ((this.flight && this.highFlight) || this.phase === 'escape') return this.flightCamera;
+    if (this.pitCamera) return this.pitCamera;
+    if (((this.flight || this.tumbling) && this.highFlight) || this.phase === 'escape') return this.flightCamera;
     if (this.landingCameraTime > 0) {
       const p = this.ctx.player.pos;
       return { pos: add(p, [0.6, 2.28, 3.14]), target: add(p, [0.6, -0.34, -9.8]), sharpness: 5.5 };
