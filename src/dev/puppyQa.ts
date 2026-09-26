@@ -9,7 +9,7 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   const step = (seconds: number) => { for (let t = 0; t < seconds - 1e-5; t += 1 / 60) tick(1 / 60); draw(); };
   const report = () => {
     const l = level() as any;
-    info.textContent = JSON.stringify({ phase: l.phase, move: l.move, moveTime: Number(l.moveTime.toFixed(2)), mode: ctx.player.mode, pos: ctx.player.pos.map(n => +n.toFixed(2)), flight: l.flight, perfect: l.perfectLaunch, status: l.status, gettingUp: ctx.player.gettingUp, immunity: l.immunity }, null, 0);
+    info.textContent = JSON.stringify({ phase: l.phase, move: l.move, moveTime: Number(l.moveTime.toFixed(2)), mode: ctx.player.mode, pos: ctx.player.pos.map(n => +n.toFixed(2)), flight: l.flight, perfect: l.perfectLaunch, status: l.status, gettingUp: ctx.player.gettingUp, immunity: l.immunity, pitCamera: !!l.pitCamera }, null, 0);
   };
   const key = (code: string, down: boolean) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code }));
   const button = (name: string, fn: () => void) => {
@@ -38,6 +38,10 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   button('Tail', () => { battle(); ctx.player.reset([1.2, 0, -6]); step(0.8); });
   button('Pounce', () => { battle(); (level() as any).beginAttack('pounce'); step(0.4); });
   button('Pit', () => { battle(); ctx.player.reset([-12.5, 0.05, 3]); step(0.7); });
+  button('Catch pit edge', () => {
+    battle(); const l = level() as any; l.setMove('recover'); l.recoverTime = 30;
+    ctx.player.reset([-11.45, 0, 3]); l.launch([6, -1, 0], false); ctx.player.pos[1] = 0.72; step(0.025);
+  });
   button('Rim', () => {
     battle(); const l = level() as any; l.setMove('recover'); l.recoverTime = 30;
     l.hoopTime = 1.8; step(0.02);

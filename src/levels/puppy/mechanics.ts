@@ -55,6 +55,6 @@ export function lickVelocity(side: number, forward: Point, jumpAge: number): { v
   const lateral = Math.max(-1, Math.min(1, side / 1.4)) * 7;
   return {
     perfect,
-    velocity: [forward[0] * 1.6 + right[0] * lateral, perfect ? 28 : Math.abs(side) < 0.7 ? 25.6 : 18.8, forward[2] * 1.6 + right[2] * lateral],
+    velocity: [forward[0] * 1.6 + right[0] * lateral, perfect ? 28.8 : Math.abs(side) < 0.7 ? 26.4 : 19.6, forward[2] * 1.6 + right[2] * lateral],
   };
 }

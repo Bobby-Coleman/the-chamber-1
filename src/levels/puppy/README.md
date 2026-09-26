@@ -7,7 +7,7 @@ ragdoll body and purple portal shader.
 ## Encounter
 
 The giant barred vault holds the actual puppy from the start. Its reflective eyes are all
-that is visible in the darkness. Press E on the red release button. Telescoping gates open
+that is visible in the darkness. Press E on the red button beside the right side of the cage. Telescoping gates open
 sideways and the puppy walks into the light. Movement and the normal camera remain available
 throughout; there is no reveal cutscene.
 
@@ -28,7 +28,8 @@ throughout; there is no reveal cutscene.
   the landing area. Jumping over the impact or moving clear avoids it.
 - The chamber is slightly larger (28m across). Deep trenches cover most of the perimeter,
   with two additional holes near the sides of the fighting area. Steel lips, retaining ribs,
-  dim lamps and shaft walls fade into darkness 36m below. The fall camera stays above the rim.
+  dim lamps and shaft walls fade into darkness 36m below. The fall camera stays above the rim,
+  releasing back to normal follow if you catch the edge or regain footing.
 - The exit is a sky-facing purple portal carried by an articulated machine arm 17.5 metres
   above the floor. It moves across the room on a repeatable 7.2-second cycle. Descend through
   its opening to leave. Rising through it does not win.

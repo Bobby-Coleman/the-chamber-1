@@ -90,6 +90,16 @@ try {
     const shot = f.level.cameraShot(); assert.ok(shot.pos[1] >= 3.2); assert.ok(shot.target[1] < 0);
     f.step(1); assert.ok(f.level.cameraShot().pos[1] >= 3.2, 'pit camera must stay above the floor');
   });
+  check('catching the pit edge releases the fall camera and restores normal play', () => {
+    const f = fixture(); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30;
+    f.player.reset([-11.45, 0, 3]); f.level.launch([6, -1, 0], false);
+    f.player.pos[1] = 0.72;
+    f.step(0.025); assert.ok(f.level.cameraShot(), 'look down while actually falling into the shaft');
+    f.step(0.8);
+    assert.equal(f.level.phase, 'play'); assert.equal(f.player.mode, 'control');
+    assert.equal(f.level.cameraShot(), null, 'a survivable edge catch must return to the normal camera');
+    f.step(3); assert.equal(f.player.gettingUp, false); assert.equal(f.level.cameraShot(), null);
+  });
   check('a valid airborne crossing squeezes player and exits', () => {
     const f = fixture(); f.battle(); f.level.hoopTime = 0;
     f.player.pos = [rules.hoopX(0.05), rules.HOOP_Y + 0.15, rules.HOOP_Z];

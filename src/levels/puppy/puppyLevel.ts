@@ -13,7 +13,7 @@ type Phase = 'sealed' | 'opening' | 'reveal' | 'play' | 'escape' | 'dead';
 type Move = 'chase' | 'lick' | 'paw' | 'pounce' | 'tail' | 'recover';
 /** Pressure, dodge, opportunity. Close-range play must not collapse into an endless lick loop. */
 const ATTACK_CYCLE: readonly Move[] = ['pounce', 'paw', 'lick', 'pounce', 'paw', 'pounce', 'lick'];
-const BUTTON: Vec3 = [0, 0, 4.6];
+const BUTTON: Vec3 = [9.4, 0, -4.8];
 const ENV: Environment = {
   sunDir: [0.3, 1, 0.5], sunColor: [1.65, 1.53, 1.4], skyColor: [0.22, 0.29, 0.4],
   groundColor: [0.19, 0.18, 0.20], fogColor: [0.35, 0.42, 0.52], fogDensity: 0.003,
@@ -127,12 +127,13 @@ export class PuppyLevel implements Level {
     const beforeHoop = this.hoopTime;
     if (this.phase !== 'escape') this.hoopTime += dt;
     this.rim.move([hoopX(this.hoopTime), HOOP_Y, HOOP_Z]);
-    this.updatePitCamera();
     if (this.phase === 'dead') {
+      this.updatePitCamera();
       if (this.phaseTime > 1.2) this.status = 'lost';
       return;
     }
     if (this.phase === 'escape') {
+      this.pitCamera = null;
       this.puppy.pose = 'happy';
       if (this.phaseTime > PORTAL_SQUEEZE_TIME + 0.7) this.status = 'exited';
       return;
@@ -140,6 +141,8 @@ export class PuppyLevel implements Level {
     if (this.tumbling) this.updateTumble(dt);
     else if (this.flight) this.updateFlight(dt, beforeHoop);
     else if (player.pos[1] < -1.8) this.die();
+    // Flight and recovery may put us back on the edge this tick. Evaluate the camera afterwards.
+    this.updatePitCamera();
     if (this.phase === 'dead' as Phase || this.phase === 'escape' as Phase) return;
     switch (this.phase) {
       case 'sealed': break;
@@ -176,8 +179,17 @@ export class PuppyLevel implements Level {
 
   private updatePitCamera() {
     const { player, camera } = this.ctx;
-    const height = this.flight || this.tumbling ? 0.9 : -0.15;
-    if (!this.pitCamera && this.arrival.done && player.pos[1] < height && inPit(player.pos[0], player.pos[2])) {
+    // Flight stores the body's centre; controlled movement and ragdolls store feet height.
+    const feetY = player.pos[1] - (this.flight ? 0.95 : 0);
+    const vy = this.flight?.[1] ?? (this.tumbling ? player.body!.parts.pelvis.linvel().y : player.vel[1]);
+    const supported = player.mode === 'control' && player.onGround;
+    // Match the landing margin so catching the lip does not count as falling into the shaft.
+    const overPit = inPit(player.pos[0], player.pos[2], 0.1);
+    if (this.phase !== 'dead' && (!overPit || feetY >= 0.05 || supported || vy > 0.5)) {
+      this.pitCamera = null;
+      return;
+    }
+    if (!this.pitCamera && this.arrival.done && feetY < -0.15 && vy < -0.1 && overPit && !supported) {
       const from = camera.pos ?? add(player.pos, [0.6, 3.2, 3.1]);
       this.pitCamera = {
         pos: [clamp(from[0], -13.5, 13.5), Math.max(3.2, from[1]), clamp(from[2], -13.5, 13.5)],
