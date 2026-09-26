@@ -35,6 +35,8 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   button('Land / recover', () => step(6));
   button('Look up', () => { ctx.camera.pitch = 0.95; step(0.35); });
   button('Paw', () => { battle(); (level() as any).beginAttack('paw'); step(0.7); });
+  button('Paw reach', () => { battle(); ctx.player.reset([0, 0, 2.6]); (level() as any).beginAttack('paw'); step(0.7); });
+  button('Bark', () => { (level() as any).bark(); step(0.12); });
   button('Tail', () => { battle(); ctx.player.reset([1.2, 0, -6]); step(0.8); });
   button('Pounce', () => { battle(); (level() as any).beginAttack('pounce'); step(0.4); });
   button('Pit', () => { battle(); ctx.player.reset([-12.5, 0.05, 3]); step(0.7); });

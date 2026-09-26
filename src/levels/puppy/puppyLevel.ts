@@ -1,4 +1,4 @@
-import { add, approachAngle, clamp, easeInOut, lerp, lerp3, mul, normalize, rotationY, scaling, translation, type Vec3 } from '../../engine/math';
+import { add, approachAngle, clamp, easeInOut, lerp, lerp3, mul, normalize, rotationY, rotationZ, scaling, translation, type Vec3 } from '../../engine/math';
 import { Pattern, type DrawItem, type Environment } from '../../engine/renderer';
 import { drawPortal, PORTAL_SQUEEZE_TIME, PortalArrival } from '../../entities/portal';
 import { PrisonVault } from '../../entities/prisonVault';
@@ -12,7 +12,7 @@ import { FLIGHT_GRAVITY, HOOP_RADIUS, HOOP_Y, HOOP_Z, hoopCrossing, hoopX, inPit
 type Phase = 'sealed' | 'opening' | 'reveal' | 'play' | 'escape' | 'dead';
 type Move = 'chase' | 'lick' | 'paw' | 'pounce' | 'tail' | 'recover';
 /** Pressure, dodge, opportunity. Close-range play must not collapse into an endless lick loop. */
-const ATTACK_CYCLE: readonly Move[] = ['pounce', 'paw', 'lick', 'pounce', 'paw', 'pounce', 'lick'];
+const ATTACK_CYCLE: readonly Move[] = ['pounce', 'paw', 'lick', 'paw', 'pounce', 'lick', 'pounce', 'paw', 'lick'];
 const BUTTON: Vec3 = [9.4, 0, -4.8];
 const ENV: Environment = {
   sunDir: [0.3, 1, 0.5], sunColor: [1.65, 1.53, 1.4], skyColor: [0.22, 0.29, 0.4],
@@ -64,6 +64,7 @@ export class PuppyLevel implements Level {
   private pounceWindup = 0.72;
   private pounceAirtime = 0.5;
   private nextBark = 3;
+  private greetingTime = -1;
 
   constructor(private ctx: LevelContext) {
     ctx.hud.setLevel('The Chamber · Level 4');
@@ -123,6 +124,7 @@ export class PuppyLevel implements Level {
     this.landingCameraTime = Math.max(0, this.landingCameraTime - dt);
     this.puppy.time = this.time;
     this.puppy.animate(dt);
+    if (this.greetingTime >= 0) this.greetingTime += dt;
     this.arrival.update(dt);
     const beforeHoop = this.hoopTime;
     if (this.phase !== 'escape') this.hoopTime += dt;
@@ -154,6 +156,8 @@ export class PuppyLevel implements Level {
         const k = easeInOut(clamp(this.phaseTime / 4.4, 0, 1));
         this.puppy.pos[2] = lerp(-10.5, -3.4, k);
         this.puppy.pose = this.phaseTime < 4.4 ? 'walk' : 'happy';
+        // Affection appears as he reaches the light, preserving the ominous closed-vault reveal.
+        if (this.greetingTime < 0 && this.phaseTime >= 2.1) this.greetingTime = 0;
         if (this.phaseTime - dt < 2.8 && this.phaseTime >= 2.8) this.ctx.hud.hint('“Oh. A puppy. Aw, that’s not so bad.”');
         if (this.phaseTime > 4.9) { this.phase = 'play'; this.phaseTime = 0; this.setMove('chase'); this.ctx.hud.hint(''); }
         break;
@@ -298,7 +302,7 @@ export class PuppyLevel implements Level {
         const sweep = clamp((this.moveTime - PAW_WINDUP) / PAW_SWEEP_TIME, 0, 1);
         dog.charge = this.moveTime < PAW_WINDUP ? easeInOut(this.moveTime / PAW_WINDUP) : 1 - easeInOut(clamp((this.moveTime - PAW_WINDUP - PAW_SWEEP_TIME) / 0.35, 0, 1));
         dog.pawSweep = sweep;
-        const f = dog.forward, lunge = easeInOut(sweep) * 0.75;
+        const f = dog.forward, lunge = easeInOut(sweep) * 2.5;
         dog.pos[0] = this.pawStart[0] + f[0] * lunge; dog.pos[2] = this.pawStart[2] + f[2] * lunge;
         if (this.moveTime >= PAW_WINDUP && this.moveTime <= PAW_WINDUP + PAW_SWEEP_TIME && !this.attackHit) {
           const hit = this.localPlayer(), arc = pawSweepPoint(dog.pawSide, sweep);
@@ -495,6 +499,7 @@ export class PuppyLevel implements Level {
     this.arrival.draw(out);
     this.vault.draw(out, this.time);
     this.puppy.draw(out);
+    this.drawGreeting(out);
     this.drawHoop(out);
     if (this.phase === 'play') this.drawTells(out);
   }
@@ -505,6 +510,24 @@ export class PuppyLevel implements Level {
     drawPortal(out, [x, HOOP_Y + 0.025, HOOP_Z], [0, 1, 0], HOOP_RADIUS, false);
     out.push({ mesh: 'cylinder', model: mul(translation([x, HOOP_Y - 0.11, HOOP_Z]), scaling([HOOP_RADIUS, 0.15, HOOP_RADIUS])), color: [0.055, 0.025, 0.085] });
     drawPortalArm(out, centre, HOOP_RADIUS, this.time);
+  }
+
+  private drawGreeting(out: DrawItem[]) {
+    if (this.greetingTime < 0 || this.greetingTime > 4.7) return;
+    const dog = this.puppy;
+    for (let i = 0; i < 5; i++) {
+      const age = this.greetingTime - i * 0.5;
+      if (age < 0 || age > 2.7) continue;
+      const pop = easeInOut(clamp(age / 0.3, 0, 1));
+      const fade = 1 - easeInOut(clamp((age - 1.9) / 0.8, 0, 1));
+      const size = (0.85 + (i % 2) * 0.2) * pop * fade;
+      if (size < 0.01) continue;
+      const side = (i % 3 - 1) * 0.95 + Math.sin(age * 2 + i) * 0.2;
+      const p: Vec3 = [dog.pos[0] + side, dog.pos[1] + 4.4 + age * 0.9, dog.pos[2] + 1.5];
+      const view = this.ctx.camera.pos ?? add(p, [0, 0, 5]);
+      const yaw = Math.atan2(view[0] - p[0], view[2] - p[2]);
+      out.push({ mesh: 'heart', model: mul(translation(p), rotationY(yaw), rotationZ(Math.sin(age * 2 + i) * 0.13), scaling([size, size, size])), color: i % 2 ? [1, 0.3, 0.48] : [1, 0.06, 0.23], pattern: Pattern.emissive, shadow: false });
+    }
   }
 
   private drawTells(out: DrawItem[]) {

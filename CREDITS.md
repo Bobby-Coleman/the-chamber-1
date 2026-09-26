@@ -10,7 +10,11 @@
 
 ## Assets
 
-None yet — all models are built from primitives in code.
-
 The puppy, containment vault and articulated portal emitter are original procedural models.
-Puppy barks, lick and landing cues are synthesized with Web Audio; no external audio assets are used.
+The floating hearts are an original procedural mesh. Lick and landing cues are synthesized with Web Audio.
+
+| File | Source | Author | License |
+|---|---|---|---|
+| `src/assets/audio/puppy-bark.mp3` | [Single Dog Bark](https://freesound.org/people/kwahmah_02/sounds/277058/) (Freesound HQ MP3 preview, bundled unmodified) | kwahmah_02 | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+
+The bark is a 0.389-second recording. Playback adds only small pitch/volume variation.

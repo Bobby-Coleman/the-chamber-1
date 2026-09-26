@@ -10,15 +10,17 @@ The giant barred vault holds the actual puppy from the start. Its reflective eye
 that is visible in the darkness. Press E on the red button beside the right side of the cage. Telescoping gates open
 sideways and the puppy walks into the light. Movement and the normal camera remain available
 throughout; there is no reveal cutscene.
+Pink hearts float up above his head as he walks into the light and fade after the greeting.
 
 - Stand in front of the nose to bait a lick. The head dips, tongue extends and curls upward.
   A centered lick launches high; jumping during the final 0.28 seconds gives extra height.
   An off-centre lick sends you sideways and lower.
-- Attacks rotate through pounce, paw, lick, pounce, paw, pounce, lick. Pounces happen even
+- Attacks rotate through varied paw/pounce pairs, with a lick every third attack. Pounces happen even
   at close range; the rear approach changes a paw attack into a tail sweep. A lick is an
   opportunity between the other attacks, never repeated immediately.
 - A raised paw reaches forward and sweeps across the entire front of the puppy. The orange
-  arc, visible foot and active hit window follow the same path; back away or move behind him.
+  arc, visible foot and active hit window follow the same path, with a forward lunge reaching
+  roughly six metres from his starting position; back away or move behind him.
   Circling behind the puppy can invite a tail sweep.
 - The puppy makes short committed trots and quick turns between attacks, with planted feet,
   lifted return steps, blinking, a smiling jaw, animated barks and flopping ears.
@@ -58,5 +60,7 @@ room size and dart flight pose.
 - `?level=4&puppyQa`: development-only manual-time visual checkpoints. Useful in a browser
   that pauses animation when unfocused. These controls are removed from the production build.
 
-Puppy audio is procedural and starts only after a keyboard or pointer gesture. No downloaded
-models, textures, animation packs or sounds are required.
+Audio starts only after a keyboard or pointer gesture. Barks use a locally bundled CC0 dog
+recording with subtle playback variation; the lick and landing cues remain procedural.
+See `CREDITS.md` for the recording's source and license. No downloaded models, textures or
+animation packs are required.

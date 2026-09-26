@@ -20,6 +20,35 @@ class Builder {
   }
 }
 
+/** Small solid heart facing +z, with rounded lobes and a pointed bottom. */
+export function heart(segments = 48): MeshData {
+  const b = new Builder();
+  const outline = Array.from({ length: segments }, (_, i) => {
+    const t = i / segments * Math.PI * 2;
+    return [Math.sin(t) ** 3 * 0.5, (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 32];
+  });
+  for (const z of [-0.1, 0.1]) {
+    const sign = Math.sign(z), center = b.vert(0, 0, z, 0, 0, sign);
+    const rim = outline.map(([x, y]) => b.vert(x, y, z, 0, 0, sign));
+    for (let i = 0; i < segments; i++) {
+      const next = (i + 1) % segments;
+      if (sign > 0) b.tri(center, rim[next], rim[i]);
+      else b.tri(center, rim[i], rim[next]);
+    }
+  }
+  for (let i = 0; i < segments; i++) {
+    const [x, y] = outline[i], [nx, ny] = outline[(i + 1) % segments];
+    const len = Math.hypot(nx - x, ny - y);
+    const normal = [(y - ny) / len, (nx - x) / len];
+    const a = b.vert(x, y, -0.1, normal[0], normal[1], 0);
+    const c = b.vert(nx, ny, -0.1, normal[0], normal[1], 0);
+    const d = b.vert(nx, ny, 0.1, normal[0], normal[1], 0);
+    const e = b.vert(x, y, 0.1, normal[0], normal[1], 0);
+    b.tri(a, d, c); b.tri(a, e, d);
+  }
+  return b.build();
+}
+
 /** Unit cube centred on the origin, [-0.5, 0.5] on each axis. */
 export function box(): MeshData {
   const b = new Builder();

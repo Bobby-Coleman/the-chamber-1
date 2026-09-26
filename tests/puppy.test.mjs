@@ -13,7 +13,7 @@ try {
   const rules = await server.ssrLoadModule('/src/levels/puppy/mechanics.ts');
   await initPhysics();
   const worlds = [];
-  const fixture = () => {
+  const fixture = ({ safeFloor = false } = {}) => {
     const physics = new Physics(); worlds.push(physics);
     const player = new Player(); player.attach(physics);
     const down = new Set(), pressed = new Set();
@@ -23,6 +23,8 @@ try {
     const ctx = { physics, player, input, camera, hud };
     const level = new PuppyLevel(ctx);
     addChamberColliders(physics, level.chamber);
+    // Isolate ragdoll recovery from valid deaths when a moving rim throws the body into a pit.
+    if (safeFloor) physics.addStaticBox([0, -0.5, 0], [28, 1, 28]);
     const step = seconds => {
       for (let t = 0; t < seconds - 1e-7; t += 1 / 120) {
         const dt = 1 / 120;
@@ -122,18 +124,18 @@ try {
       f.step(0.9); assert.equal(f.level.cameraShot(), null); assert.equal(f.player.mode, 'control');
     }
   });
-  check('close-range mix has three pounces and two licks per seven attacks; never adjacent licks', () => {
+  check('close-range mix offers a lick every third attack and keeps paws and pounces', () => {
     const f = fixture(); f.battle();
     const moves = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 9; i++) {
       f.player.reset([0, 0, 0.4]); f.level.puppy.pos = [0, 0, -3.4]; f.level.puppy.yaw = 0;
       f.level.setMove('chase');
       for (let t = 0; t < 3 && f.level.move === 'chase'; t += 0.05) f.step(0.05);
       moves.push(f.level.move);
     }
-    assert.deepEqual(moves, ['pounce', 'paw', 'lick', 'pounce', 'paw', 'pounce', 'lick']);
+    assert.deepEqual(moves, ['pounce', 'paw', 'lick', 'paw', 'pounce', 'lick', 'pounce', 'paw', 'lick']);
     assert.equal(moves.filter(m => m === 'pounce').length, 3);
-    assert.equal(moves.filter(m => m === 'lick').length, 2);
+    assert.equal(moves.filter(m => m === 'lick').length, 3);
   });
   check('ascent stays close and descent becomes overhead', () => {
     const f = fixture(); f.battle(); f.level.launch([0, 28, 0], true);
@@ -148,6 +150,14 @@ try {
     assert.ok(Math.abs(rules.pawSweepPoint(1, 0.5)[0]) < 0.01);
     const f = fixture(); f.battle(); f.player.reset([0, 0, 3.2]); f.level.setMove('paw');
     f.step(1.3); assert.equal(f.level.flight, null);
+  });
+  check('forward paw lunge reaches a player six metres in front on either paw', () => {
+    for (const side of [-1, 1]) {
+      const f = fixture(); f.battle(); f.player.reset([0, 0, 2.6]);
+      f.level.puppy.pawSide = side; f.level.setMove('paw');
+      f.step(0.7); assert.equal(f.level.flight, null, 'wind-up must stay safe');
+      f.step(0.4); assert.ok(f.level.flight, `extended ${side} paw should connect`);
+    }
   });
   check('pounce timing varies but always gives a readable bow and a fast jump', () => {
     const f = fixture(); f.battle(); const times = [];
@@ -166,8 +176,8 @@ try {
     assert.equal(rules.rimImpact([4, y + 2, z], [4, y - 2, z], 0, 0), null);
   });
   check('rim contact creates an intact physical ragdoll and recovers from its landing', () => {
-    const f = fixture(); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30;
-    // Clip the inward-facing edge with clear floor below; an outward edge can throw us into a pit.
+    const f = fixture({ safeFloor: true }); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30;
+    // Clip the inward-facing edge. Pit deaths are verified separately above.
     f.level.hoopTime = 5.4; f.step(0.01);
     f.player.pos = [rules.hoopX(f.level.hoopTime) + 2, rules.HOOP_Y + 1.2, rules.HOOP_Z];
     f.player.mode = 'flying'; f.player.flightStyle = 'flail'; f.player.flightDir = [0, 1, 0];
