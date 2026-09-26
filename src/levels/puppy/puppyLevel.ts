@@ -10,7 +10,7 @@ import { VaultBridge } from '../../entities/vaultBridge';
 import { drawPortalArm, PortalRim } from '../../entities/portalArm';
 import { preparePuppyAudio, puppySound } from '../../entities/puppyAudio';
 import { type CameraShot, type Level, type LevelContext, type LevelStatus, type WorldLabel } from '../level';
-import { FLIGHT_GRAVITY, HOOP_RADIUS, HOOP_Y, HOOP_Z, hoopCrossing, hoopX, inPit, LICK_WINDUP, lickVelocity, PAW_SWEEP_TIME, PAW_WINDUP, pawSweepPoint, PITS, rimImpact, undersideImpact } from './mechanics';
+import { FLIGHT_GRAVITY, HOOP_RADIUS, HOOP_Y, HOOP_Z, hoopCrossing, hoopX, inPit, LICK_WINDUP, lickVelocity, PAW_SWEEP_TIME, PAW_WINDUP, pawSweepPoint, PITS, pitBoundaryEdges } from './mechanics';
 
 type Phase = 'sealed' | 'opening' | 'reveal' | 'play' | 'escape' | 'dead';
 type Move = 'chase' | 'lick' | 'paw' | 'pounce' | 'recover';
@@ -47,7 +47,7 @@ export class PuppyLevel implements Level {
   private recoverTime = 1.4;
   private target: Vec3 = [0, 0, 0];
   private pounceStart: Vec3 = [0, 0, 0];
-  private flight: Vec3 | null = null;
+  private airSteering = false;
   private flightTime = 0;
   private jumpAge = 10;
   private immunity = 0;
@@ -80,7 +80,7 @@ export class PuppyLevel implements Level {
     this.vault = new PrisonVault(ctx.physics);
     this.bridge = new VaultBridge(ctx.physics);
     this.contactBody = new PuppyContactBody(ctx.physics, this.puppy);
-    ctx.player.recoveryMoveScale = 0.5;
+    ctx.player.recoveryMoveScale = 0.4;
     this.rim = new PortalRim(ctx.physics, [hoopX(0), HOOP_Y, HOOP_Z], HOOP_RADIUS);
     new Button(ctx.physics, BUTTON, [0.87, 0.045, 0.018], () => this.release());
     this.buildRoom();
@@ -89,32 +89,20 @@ export class PuppyLevel implements Level {
 
   private buildRoom() {
     const box = (p: Vec3, size: Vec3, color: number[], emissive = false) => this.scenery.push({ mesh: 'box', model: mul(translation(p), scaling(size)), color, pattern: emissive ? Pattern.emissive : Pattern.plain });
-    for (const p of PITS) {
-      // A deep shaft with progressively darker walls, rather than a shallow black tray.
-      box([p.x, -38, p.z], [p.width, 0.1, p.depth], [0, 0, 0], true);
-      for (const s of [-1, 1]) {
-        this.ctx.physics.addStaticBox([p.x + s * (p.width / 2 + 0.06), -18, p.z], [0.12, 36, p.depth]);
-        this.ctx.physics.addStaticBox([p.x, -18, p.z + s * (p.depth / 2 + 0.06)], [p.width, 36, 0.12]);
-        for (let depth = 0; depth < 36; depth += 3) {
-          const shade = 0.12 * Math.exp(-depth / 5);
-          box([p.x + s * p.width / 2, -depth - 1.5, p.z], [0.12, 3.04, p.depth], [shade, shade * 1.1, shade * 1.3], true);
-          box([p.x, -depth - 1.5, p.z + s * p.depth / 2], [p.width, 3.04, 0.12], [shade, shade * 1.1, shade * 1.3], true);
-        }
-        // Steel lips, inset retaining ribs and low lamps give a visible sense of scale/depth.
-        box([p.x + s * p.width / 2, -0.18, p.z], [0.18, 0.36, p.depth], [0.19, 0.23, 0.28]);
-        box([p.x, -0.18, p.z + s * p.depth / 2], [p.width, 0.36, 0.18], [0.19, 0.23, 0.28]);
-        for (let z = -p.depth / 2 + 1; z < p.depth / 2; z += 3) {
-          box([p.x + s * (p.width / 2 - 0.04), -2.5, p.z + z], [0.1, 4.8, 0.14], [0.06, 0.08, 0.1], true);
-          box([p.x + s * (p.width / 2 - 0.1), -2.2, p.z + z], [0.06, 0.14, 0.26], [0.16, 0.25, 0.32], true);
-        }
-        box([p.x + s * (p.width / 2 + 0.1), 0.025, p.z], [0.20, 0.05, p.depth + 0.4], [0.93, 0.43, 0.025], true);
-        box([p.x, 0.025, p.z + s * (p.depth / 2 + 0.1)], [p.width, 0.05, 0.20], [0.93, 0.43, 0.025], true);
-        box([p.x + s * p.width / 2, -1.1, p.z], [0.04, 0.08, p.depth], [0.7, 0.02, 0.01], true);
-        for (let z = -p.depth / 2; z < p.depth / 2; z += 0.42) box([p.x + s * (p.width / 2 + 0.1), 0.054, p.z + z], [0.21, 0.015, 0.15], [0.035, 0.035, 0.035]);
+    for (const p of PITS) box([p.x, -38, p.z], [p.width, 0.1, p.depth], [0, 0, 0], true);
+    for (const edge of pitBoundaryEdges()) {
+      const { x, z, width, depth, length, alongX } = edge;
+      this.ctx.physics.addStaticBox([x, -18, z], [width, 36, depth]);
+      for (let d = 0; d < 36; d += 3) {
+        const shade = 0.10 * Math.exp(-d / 5);
+        box([x, -d - 1.5, z], [width, 3.04, depth], [shade, shade * 1.1, shade * 1.3], true);
       }
+      box([x, -0.15, z], [alongX ? length : 0.18, 0.3, alongX ? 0.18 : length], [0.19, 0.23, 0.28]);
+      box([x, 0.025, z], [alongX ? length : 0.2, 0.05, alongX ? 0.2 : length], [0.93, 0.43, 0.025], true);
+      box([x, -1.1, z], [alongX ? length : 0.14, 0.08, alongX ? 0.14 : length], [0.7, 0.02, 0.01], true);
+      for (let t = -length / 2 + 0.2; t < length / 2; t += 0.42) box([x + (alongX ? t : 0), 0.054, z + (alongX ? 0 : t)], [alongX ? 0.15 : 0.21, 0.015, alongX ? 0.21 : 0.15], [0.035, 0.035, 0.035]);
     }
   }
-
   private release() {
     if (this.phase !== 'sealed' || !this.arrival.done) return;
     this.phase = 'opening'; this.phaseTime = 0;
@@ -133,6 +121,7 @@ export class PuppyLevel implements Level {
       player.knockProtection = Math.max(player.knockProtection, 0.65);
     }
     this.landingCameraTime = Math.max(0, this.landingCameraTime - dt);
+    this.contactBody.sync();
     this.puppy.time = this.time;
     this.puppy.animate(dt);
     if (this.greetingTime >= 0) this.greetingTime += dt;
@@ -145,9 +134,9 @@ export class PuppyLevel implements Level {
     // Physical motion happened during the previous physics step, before this hoop movement.
     this.checkPhysicalPortal(beforeHoop);
     if (this.phase !== 'escape') this.hoopTime += dt;
-    this.rim.move([hoopX(this.hoopTime), HOOP_Y, HOOP_Z]);
+    this.rim.move([hoopX(this.hoopTime), HOOP_Y, HOOP_Z], dt);
     const physicalHeight = player.body?.position('pelvis')[1] ?? player.pos[1];
-    this.rim.setUndersideSolid(!player.inPortal && !this.flight && physicalHeight < HOOP_Y - 0.15);
+    this.rim.setUndersideSolid(!player.inPortal && physicalHeight < HOOP_Y - 0.15);
     if (this.phase === 'dead') {
       this.updatePitCamera();
       if (this.phaseTime > 1.2) this.status = 'lost';
@@ -159,8 +148,11 @@ export class PuppyLevel implements Level {
       if (this.phaseTime > PORTAL_SQUEEZE_TIME + 0.7) this.status = 'exited';
       return;
     }
+    player.physicsDrivenKnockdowns = this.arrival.done;
+    if (!this.tumbling && player.mode === 'ragdoll') {
+      this.tumbling = true; this.tumbleTime = 0; this.settledTime = 0; this.highFlight = false;
+    }
     if (this.tumbling) this.updateTumble(dt);
-    else if (this.flight) this.updateFlight(dt, beforeHoop);
     else if (player.pos[1] < -1.8) this.die();
     // Flight and recovery may put us back on the edge this tick. Evaluate the camera afterwards.
     this.updatePitCamera();
@@ -184,12 +176,9 @@ export class PuppyLevel implements Level {
       }
       case 'play': this.updateBoss(dt); break;
     }
-    if (this.contactBody.update(this.puppy, player, dt, this.phase === 'play' && !this.flight && this.immunity <= 0)) {
-      this.immunity = 1.2;
-      this.ctx.camera.addShake(0.16);
-    }
+    this.contactBody.update(this.puppy, dt);
     // The existing exterior landing behind the right side of the cage hides the reward.
-    if (!this.secretFound && player.mode === 'control' && Math.hypot(player.pos[0] - 12.35, player.pos[2] + 12.35) < 0.9 && Math.abs(player.pos[1]) < 1.2) {
+    if (!this.secretFound && player.mode === 'control' && Math.hypot(player.pos[0] - 9.15, player.pos[2] + 12.8) < 0.9 && Math.abs(player.pos[1]) < 1.2) {
       this.secretFound = true; player.puppyMan = true;
       try { if (typeof localStorage !== 'undefined') localStorage.setItem('chamber-puppy-man', '1'); } catch { /* Cosmetic still works for this session. */ }
       this.ctx.hud.show('ONE OF THE PACK', 'Puppy man unlocked.', 2.5);
@@ -202,7 +191,7 @@ export class PuppyLevel implements Level {
 
   private checkPhysicalPortal(time: number) {
     const player = this.ctx.player;
-    if (this.phase !== 'play' || this.flight || player.inPortal || !player.body?.isEnabled || !['ragdoll', 'control'].includes(player.mode)) {
+    if (this.phase !== 'play' || player.inPortal || !player.body?.isEnabled || !['ragdoll', 'control'].includes(player.mode)) {
       this.physicalPortalSample = null;
       return;
     }
@@ -213,7 +202,7 @@ export class PuppyLevel implements Level {
 
   private win() {
     const player = this.ctx.player;
-    this.phase = 'escape'; this.phaseTime = 0; this.flight = null; this.tumbling = false;
+    this.phase = 'escape'; this.phaseTime = 0; this.airSteering = false; this.tumbling = false;
     this.pitCamera = null;
     if (player.body?.isEnabled && (player.mode === 'ragdoll' || player.mode === 'control')) {
       // Freeze the actual pose so a limp player can be sucked into the portal intact.
@@ -241,26 +230,20 @@ export class PuppyLevel implements Level {
 
   private updatePitCamera() {
     const { player, camera } = this.ctx;
-    // Flight stores the body's centre; controlled movement and ragdolls store feet height.
-    const feetY = player.pos[1] - (this.flight ? 0.95 : 0);
-    const vy = this.flight?.[1] ?? (this.tumbling ? player.body!.parts.pelvis.linvel().y : player.vel[1]);
-    const supported = player.mode === 'control' && player.onGround;
-    // Match the landing margin so catching the lip does not count as falling into the shaft.
     const overPit = this.overPit(player.pos[0], player.pos[2], 0.1);
-    if (this.phase !== 'dead' && (!overPit || feetY >= 0.05 || supported || vy > 0.5)) {
-      this.pitCamera = null;
-      return;
+    if (this.phase !== 'dead' && (!overPit || player.pos[1] >= 0.05 || (player.mode === 'control' && player.onGround))) {
+      this.pitCamera = null; return;
     }
-    if (!this.pitCamera && this.arrival.done && feetY < -0.15 && vy < -0.1 && overPit && !supported) {
-      const from = camera.pos ?? add(player.pos, [0.6, 3.2, 3.1]);
-      this.pitCamera = {
-        pos: [clamp(from[0], -13.5, 13.5), Math.max(3.2, from[1]), clamp(from[2], -13.5, 13.5)],
-        target: [player.pos[0], -2, player.pos[2]], sharpness: 7,
-      };
-    }
-    if (this.pitCamera) this.pitCamera.target = [player.pos[0], Math.max(-7, player.pos[1] + 0.8), player.pos[2]];
+    if (!this.arrival.done || player.pos[1] >= -0.15) return;
+    const pit = PITS.find(p => Math.abs(player.pos[0] - p.x) < p.width / 2 && Math.abs(player.pos[2] - p.z) < p.depth / 2);
+    if (!pit) return;
+    const x = clamp(player.pos[0], pit.x - pit.width / 2 + 0.45, pit.x + pit.width / 2 - 0.45);
+    const z = clamp(player.pos[2] + 0.8, pit.z - pit.depth / 2 + 0.45, pit.z + pit.depth / 2 - 0.45);
+    const current = camera.pos ?? [x, 3, z];
+    const aligned = current[0] > pit.x - pit.width / 2 + 0.2 && current[0] < pit.x + pit.width / 2 - 0.2 && current[2] > pit.z - pit.depth / 2 + 0.2 && current[2] < pit.z + pit.depth / 2 - 0.2;
+    const y = aligned ? Math.max(-12, player.pos[1] + 4.5) : Math.max(1.5, current[1]);
+    this.pitCamera = { pos: [x, y, z], target: [player.pos[0], Math.max(-16, player.pos[1] + 0.8), player.pos[2]], sharpness: 6 };
   }
-
   /** Pick a short run once, then commit. The dog does not continuously home in on the player. */
   private planApproach() {
     const dog = this.puppy, p = this.ctx.player.pos;
@@ -309,8 +292,19 @@ export class PuppyLevel implements Level {
     if (this.nextBark <= 0 && (this.move === 'chase' || this.move === 'recover')) {
       this.bark(); this.nextBark = 3.5 + Math.random() * 3;
     }
+    if ((this.tumbling || player.gettingUp) && dog.airborne < 0.1) {
+      if (this.move !== 'recover') { this.setMove('recover'); this.recoverTime = 0.9; }
+      const dx = dog.pos[0] - player.pos[0], dz = dog.pos[2] - player.pos[2], distance = Math.hypot(dx, dz);
+      if (distance < 4) {
+        const away = distance > 0.1 ? [dx / distance, dz / distance] : [-dog.forward[0], -dog.forward[2]];
+        dog.pos[0] = clamp(dog.pos[0] + away[0] * dt * 2, -6, 6);
+        dog.pos[2] = clamp(dog.pos[2] + away[1] * dt * 2, -3.4, 7.0);
+        dog.pose = 'walk';
+      } else dog.pose = 'happy';
+      return;
+    }
     const local = this.localPlayer();
-    const grounded = !this.flight && player.mode === 'control' && player.pos[1] < 2.5;
+    const grounded = !this.tumbling && player.mode === 'control' && player.pos[1] < 2.5;
     switch (this.move) {
       case 'chase': {
         dog.pose = 'walk';
@@ -357,17 +351,9 @@ export class PuppyLevel implements Level {
         const sweep = clamp((this.moveTime - PAW_WINDUP) / PAW_SWEEP_TIME, 0, 1);
         dog.charge = this.moveTime < PAW_WINDUP ? easeInOut(this.moveTime / PAW_WINDUP) : 1 - easeInOut(clamp((this.moveTime - PAW_WINDUP - PAW_SWEEP_TIME) / 0.35, 0, 1));
         dog.pawSweep = sweep;
-        const f = dog.forward, lunge = easeInOut(sweep) * 2.5;
+        const f = dog.forward, lunge = easeInOut(sweep) * 1.6;
         dog.pos[0] = this.pawStart[0] + f[0] * lunge; dog.pos[2] = this.pawStart[2] + f[2] * lunge;
-        if (this.moveTime >= PAW_WINDUP && this.moveTime <= PAW_WINDUP + PAW_SWEEP_TIME && !this.attackHit) {
-          const hit = this.localPlayer(), arc = pawSweepPoint(dog.pawSide, sweep);
-          if (grounded && Math.hypot(hit.side - arc[0], hit.front - arc[2]) < 1.05 && this.immunity <= 0) {
-            this.attackHit = true;
-            const side = -dog.pawSide;
-            this.bark();
-            this.launch([f[2] * side * 11.5 + f[0] * 2.5, 7, -f[0] * side * 11.5 + f[2] * 2.5], false);
-          }
-        }
+        if (this.moveTime - dt < PAW_WINDUP && this.moveTime >= PAW_WINDUP) this.bark();
         if (this.moveTime > PAW_WINDUP + PAW_SWEEP_TIME + 0.4) { this.recoverTime = 1.6; this.setMove('recover'); }
         break;
       }
@@ -390,114 +376,27 @@ export class PuppyLevel implements Level {
         }
         if (k >= 1 && !this.attackHit) {
           this.attackHit = true; camera.addShake(0.28); puppySound('land');
-          const d = Math.hypot(player.pos[0] - dog.pos[0], player.pos[2] - dog.pos[2]);
-          if (grounded && d < 4.3 && player.pos[1] < 1.15 && this.immunity <= 0) {
-            const angle = Math.atan2(player.pos[0] - dog.pos[0], player.pos[2] - dog.pos[2]) + (Math.random() - 0.5) * 2.6;
-            const speed = 10 + Math.random() * 3;
-            this.launch([Math.sin(angle) * speed, 8 + Math.random() * 2, Math.cos(angle) * speed], false);
-          }
         }
         if (this.moveTime > windup + airtime + 0.32) { this.recoverTime = 0.65 + Math.random() * 0.5; this.setMove('recover'); }
         break;
       }
       case 'recover':
         dog.pose = 'happy';
-        if (this.moveTime > this.recoverTime && !this.flight && !this.tumbling && !player.gettingUp && this.immunity <= 0) this.setMove('chase');
+        if (this.moveTime > this.recoverTime && !this.tumbling && !player.gettingUp && this.immunity <= 0) this.setMove('chase');
         break;
     }
   }
 
   private launch(velocity: Vec3, perfect: boolean) {
-    const { player, camera, hud } = this.ctx;
-    this.flight = velocity; this.flightTime = 0; this.perfectLaunch = perfect;
-    this.highFlight = velocity[1] > 20;
-    this.attempts++;
-    player.pos = add(player.pos, [0, 0.95, 0]);
-    player.mode = 'flying'; player.onGround = false;
-    player.flightStyle = 'flail'; player.flightAge = 0;
-    player.vel = [...velocity]; player.flightDir = normalize(velocity);
-    player.collider?.setEnabled(false);
-    camera.addShake(perfect ? 0.18 : 0.35);
-    // Caption only after the player experiences the mechanic; no pre-reveal instructions.
-    hud.hint(perfect ? 'GOOD TIMING. Questionable life choices.' : this.attempts <= 2 ? 'That was affection. Allegedly.' : '');
-    this.flightYaw = Math.atan2(Math.sin(camera.yaw), Math.cos(camera.yaw));
-    this.flightViewBlend = 0;
-    this.flightCamera = null;
-    this.landingCameraTime = 0;
+    const { player, camera } = this.ctx;
+    player.releasePhysicalBody(velocity);
+    this.tumbling = true; this.airSteering = velocity[1] > 20; this.highFlight = this.airSteering;
+    this.tumbleTime = 0; this.settledTime = 0; this.flightTime = 0; this.perfectLaunch = perfect; this.attempts++;
+    this.flightYaw = camera.yaw; this.flightViewBlend = 0; this.landingCameraTime = 0;
+    this.physicalPortalSample = { pos: [...player.body!.position('pelvis')], time: this.hoopTime };
+    for (const part of Object.values(player.body!.parts)) part.setGravityScale(this.airSteering ? FLIGHT_GRAVITY / 20 : 1, true);
+    camera.addShake(perfect ? 0.16 : 0.22);
   }
-
-  private updateFlight(dt: number, beforeHoop: number) {
-    const { player, input, camera } = this.ctx;
-    const v = this.flight!;
-    this.flightTime += dt;
-    player.flightAge = this.flightTime;
-    // Blend the controls with the camera: follow on the way up, north-up overhead on descent.
-    let x = Number(input.isDown('KeyD')) - Number(input.isDown('KeyA'));
-    let z = Number(input.isDown('KeyS')) - Number(input.isDown('KeyW'));
-    const len = Math.hypot(x, z); if (len > 1) { x /= len; z /= len; }
-    this.flightViewBlend += ((this.highFlight ? easeInOut(clamp((9 - v[1]) / 15, 0, 1)) : 0) - this.flightViewBlend) * (1 - Math.exp(-dt * 4.5));
-    const yaw = this.flightYaw * (1 - this.flightViewBlend);
-    const wx = x * Math.cos(yaw) + z * Math.sin(yaw), wz = z * Math.cos(yaw) - x * Math.sin(yaw);
-    const steering = 7.8;
-    v[0] = (v[0] + wx * steering * dt) * Math.exp(-0.45 * dt);
-    v[2] = (v[2] + wz * steering * dt) * Math.exp(-0.45 * dt);
-    const old: Vec3 = [...player.pos];
-    player.pos = [old[0] + v[0] * dt, old[1] + v[1] * dt - FLIGHT_GRAVITY * dt * dt / 2, old[2] + v[2] * dt];
-    v[1] -= FLIGHT_GRAVITY * dt;
-    player.vel = [...v];
-    const spin = Math.max(0, 1 - this.flightTime * 2.5);
-    player.flightDir = normalize([v[0] * 0.15 + Math.sin(this.flightTime * 20) * spin, 1, v[2] * 0.12]);
-    this.aimFlightCamera(player.pos, v);
-    const undersideHit = undersideImpact(old, player.pos, beforeHoop, this.hoopTime);
-    const rimHit = rimImpact(old, player.pos, beforeHoop, this.hoopTime);
-    const impact = undersideHit ?? rimHit;
-    if (impact) {
-      player.pos = impact;
-      const dx = impact[0] - hoopX(this.hoopTime), dz = impact[2] - HOOP_Z;
-      player.startTumble(undersideHit ? [v[0] * 0.7, -Math.max(3, v[1] * 0.25), v[2] * 0.7] : v, [dz * 2.4 + 2, 1.2, -dx * 2.4]);
-      this.flight = null; this.tumbling = true; this.tumbleTime = 0; this.settledTime = 0;
-      this.physicalPortalSample = { pos: [...player.body!.position('pelvis')], time: this.hoopTime };
-      camera.addShake(0.3);
-      this.ctx.hud.hint(undersideHit ? 'Bonk. Wrong side.' : 'Oof. Caught the rim.');
-      return;
-    }
-    if (hoopCrossing(old, player.pos, beforeHoop, this.hoopTime)) {
-      this.win();
-      return;
-    }
-    // Chamber walls and the vault remain solid during scripted flight.
-    const wall = this.chamber.halfSize - 0.75;
-    for (const axis of [0, 2] as const) {
-      if (Math.abs(player.pos[axis]) > wall) {
-        player.pos[axis] = clamp(player.pos[axis], -wall, wall);
-        v[axis] *= -0.45; camera.addShake(0.25);
-      }
-    }
-    const vaultHit = this.vault.flightImpact(old, player.pos);
-    if (vaultHit) {
-      player.pos = vaultHit.pos;
-      const into = Math.min(0, v[0] * vaultHit.normal[0] + v[1] * vaultHit.normal[1] + v[2] * vaultHit.normal[2]);
-      const bounce = v.map((n, i) => (n - vaultHit.normal[i] * into * 1.25) * 0.65) as Vec3;
-      player.startTumble(bounce, [1.5, 0.5, -1]);
-      this.flight = null; this.tumbling = true; this.tumbleTime = 0; this.settledTime = 0;
-      this.physicalPortalSample = { pos: [...player.body!.position('pelvis')], time: this.hoopTime };
-      camera.addShake(0.2);
-      return;
-    }
-    if (player.pos[1] <= 0.95 && v[1] < 0 && !this.overPit(player.pos[0], player.pos[2], 0.1)) {
-      const centre: Vec3 = [player.pos[0], 1.0, player.pos[2]];
-      this.flight = null; this.flightCamera = null; player.collider?.setEnabled(true);
-      this.landingCameraTime = this.highFlight ? 0.8 : 0;
-      if (this.highFlight) camera.yaw = 0;
-      player.emerge(centre, camera.yaw, [v[0] * 0.28, 0.8, v[2] * 0.28], 0.3);
-      this.immunity = 2.1;
-      camera.addShake(0.22);
-      if (this.attempts <= 3) this.ctx.hud.hint(this.perfectLaunch ? 'Almost. The exit has a terrible habit of moving.' : 'He dips his head. His tongue curls. Then jump.');
-      return;
-    }
-    if (player.pos[1] < -2.0) this.die();
-  }
-
   private aimFlightCamera(p: Vec3, v: Vec3) {
     const lead = v[1] / 14;
     const ascentPos: Vec3 = [p[0] + Math.sin(this.flightYaw) * 3.4, p[1] + 1.9 + lead, p[2] + Math.cos(this.flightYaw) * 3.4];
@@ -506,30 +405,39 @@ export class PuppyLevel implements Level {
   }
 
   private updateTumble(dt: number) {
-    const { player, physics, camera } = this.ctx;
+    const { player, physics, camera, input } = this.ctx;
     const body = player.body!;
     this.tumbleTime += dt;
-    const p = body.position('pelvis'), velocity = body.parts.pelvis.linvel();
-    const v: Vec3 = [velocity.x, velocity.y, velocity.z];
+    const p = body.position('pelvis'), v = body.velocity('pelvis');
+    player.afterPhysics();
     this.flightViewBlend += ((this.highFlight ? easeInOut(clamp((9 - v[1]) / 15, 0, 1)) : 0) - this.flightViewBlend) * (1 - Math.exp(-dt * 4.5));
     this.aimFlightCamera(p, v);
+    if (this.airSteering && p[1] > 2) {
+      let x = Number(input.isDown('KeyD')) - Number(input.isDown('KeyA'));
+      let z = Number(input.isDown('KeyS')) - Number(input.isDown('KeyW'));
+      const len = Math.hypot(x, z); if (len > 1) { x /= len; z /= len; }
+      const yaw = this.flightYaw * (1 - this.flightViewBlend);
+      const dx = ((x * Math.cos(yaw) + z * Math.sin(yaw)) * 7.8 - v[0] * 0.45) * dt;
+      const dz = ((z * Math.cos(yaw) - x * Math.sin(yaw)) * 7.8 - v[2] * 0.45) * dt;
+      for (const part of Object.values(body.parts)) part.applyImpulse({ x: dx * part.mass(), y: 0, z: dz * part.mass() }, true);
+    }
     if (p[1] < -2) { this.die(); return; }
-    // Wait for the real body to land and settle; preserve its pose throughout the fall.
-    const ground = physics.raycast(p, [0, -1, 0], 1.05);
-    const landed = ground && ground.normal[1] > 0.6 && Math.hypot(...v) < 2.4;
+    const ground = physics.raycast(p, [0, -1, 0], 1.1);
+    const supported = ground && ground.normal[1] > 0.6 && !physics.contactActors.has(ground.collider.parent()!);
+    const landed = supported && Math.hypot(...v) < 2.8;
     this.settledTime = landed ? this.settledTime + dt : 0;
-    if (ground && this.tumbleTime > 0.6 && this.settledTime > 0.3) {
+    if (supported && this.tumbleTime > 0.45 && this.settledTime > 0.2) {
+      for (const part of Object.values(body.parts)) part.setGravityScale(1, true);
       player.recoverTumble([p[0], ground.point[1] + 0.02, p[2]]);
-      this.tumbling = false; this.flightCamera = null; this.immunity = 2.1;
+      this.tumbling = false; this.airSteering = false; this.flightCamera = null; this.immunity = 1.4;
+      player.knockProtection = 1.4;
       this.landingCameraTime = this.highFlight ? 0.8 : 0;
       if (this.highFlight) camera.yaw = 0;
-      this.ctx.hud.hint('Still in one piece. Mostly dignity damage.');
     }
   }
-
   private die() {
     if (this.phase === 'dead') return;
-    this.phase = 'dead'; this.phaseTime = 0; this.flight = null;
+    this.phase = 'dead'; this.phaseTime = 0; this.airSteering = false;
     this.ctx.player.kill([0, -2, 0], { violence: 0 });
     this.ctx.hud.hint('');
     this.ctx.hud.show('LOVED TO BITS', 'He thinks you’re playing hide-and-seek.\nPress R to try again.');
@@ -559,8 +467,8 @@ export class PuppyLevel implements Level {
     this.drawHoop(out);
     if (!this.secretFound) {
       const y = 0.9 + Math.sin(this.time * 2.5) * 0.1;
-      out.push({ mesh: 'sphere', model: mul(translation([12.35, y, -12.35]), scaling([0.28, 0.34, 0.13])), color: [1, 0.66, 0.12], pattern: Pattern.emissive });
-      for (const s of [-1, 1]) out.push({ mesh: 'sphere', model: mul(translation([12.35 + s * 0.24, y + 0.08, -12.35]), scaling([0.12, 0.25, 0.10])), color: [0.69, 0.36, 0.12] });
+      out.push({ mesh: 'sphere', model: mul(translation([9.15, y, -12.8]), scaling([0.28, 0.34, 0.13])), color: [1, 0.66, 0.12], pattern: Pattern.emissive });
+      for (const s of [-1, 1]) out.push({ mesh: 'sphere', model: mul(translation([9.15 + s * 0.24, y + 0.08, -12.8]), scaling([0.12, 0.25, 0.10])), color: [0.69, 0.36, 0.12] });
     }
     if (this.phase === 'play') this.drawTells(out);
   }
@@ -602,7 +510,7 @@ export class PuppyLevel implements Level {
     if (this.move === 'pounce' && this.moveTime < this.pounceWindup + this.pounceAirtime) {
       for (let i = 0; i < 28; i++) {
         const a = i / 28 * Math.PI * 2;
-        out.push({ mesh: 'box', model: mul(translation([this.target[0] + Math.cos(a) * 4.3, 0.04, this.target[2] + Math.sin(a) * 4.3]), rotationY(-a), scaling([0.23, 0.04, 0.12])), color: [1, 0.28, 0.05], pattern: Pattern.emissive, shadow: false });
+        out.push({ mesh: 'box', model: mul(translation([this.target[0] + Math.cos(a) * 2.7, 0.04, this.target[2] + Math.sin(a) * 2.7]), rotationY(-a), scaling([0.23, 0.04, 0.12])), color: [1, 0.28, 0.05], pattern: Pattern.emissive, shadow: false });
       }
     }
     if (this.move === 'paw' && !this.attackHit) {
@@ -626,7 +534,7 @@ export class PuppyLevel implements Level {
   cameraShot(): CameraShot | null {
     const arrival = this.arrival.cameraShot(); if (arrival) return arrival;
     if (this.pitCamera) return this.pitCamera;
-    if (((this.flight || this.tumbling) && this.highFlight) || this.phase === 'escape') return this.flightCamera;
+    if ((this.tumbling && this.highFlight) || this.phase === 'escape') return this.flightCamera;
     if (this.landingCameraTime > 0) {
       const p = this.ctx.player.pos;
       return { pos: add(p, [0.6, 2.28, 3.14]), target: add(p, [0.6, -0.34, -9.8]), sharpness: 5.5 };

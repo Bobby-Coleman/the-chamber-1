@@ -6,11 +6,13 @@ export const HOOP_RADIUS = 1.8;
 export const FLIGHT_GRAVITY = 18;
 export const LICK_WINDUP = 1.3;
 export const PAW_WINDUP = 0.7;
-export const PAW_SWEEP_TIME = 0.42;
+export const PAW_SWEEP_TIME = 0.5;
 /** The animation and collision use exactly the same sweeping paw path. */
 export function pawSweepPoint(side: number, progress: number): Point {
   const t = Math.max(0, Math.min(1, progress));
-  return [side * (2.7 - t * 5.4), 1.5 - Math.sin(t * Math.PI) * 0.55, 2.7 + Math.sin(t * Math.PI) * 1.15];
+  if (t < 0.3) return [side * (3.3 - t * 10), 1.25 - t * 0.5, 2.4 + t / 0.3 * 0.5];
+  if (t < 0.7) return [side * (0.3 - (t - 0.3) * 1.5), 1.1, 2.9 + (t - 0.3) / 0.4 * 2.4];
+  return [side * (-0.3 - (t - 0.7) * 10), 1.1 + (t - 0.7) * 0.5, 5.3 - (t - 0.7) / 0.3 * 2];
 }
 export const REAR_PIT = { x: 0, z: -9.7, width: 12, depth: 6.4 };
 export const PITS = [
@@ -28,6 +30,23 @@ export function inPit(x: number, z: number, inset = 0) {
   return PITS.some(p => Math.abs(x - p.x) < p.width / 2 - inset && Math.abs(z - p.z) < p.depth / 2 - inset);
 }
 
+/** Only the outside boundary of the union gets walls; touching pits have no internal partitions. */
+export function pitBoundaryEdges() {
+  const result: { x: number; z: number; width: number; depth: number; length: number; alongX: boolean }[] = [];
+  for (const p of PITS) for (const alongX of [true, false]) for (const sign of [-1, 1]) {
+    const start = alongX ? p.x - p.width / 2 : p.z - p.depth / 2;
+    const end = alongX ? p.x + p.width / 2 : p.z + p.depth / 2;
+    const fixed = alongX ? p.z + sign * p.depth / 2 : p.x + sign * p.width / 2;
+    const cuts = [...new Set([start, end, ...PITS.flatMap(q => alongX ? [q.x - q.width / 2, q.x + q.width / 2] : [q.z - q.depth / 2, q.z + q.depth / 2]).filter(v => v > start && v < end)])].sort((a, b) => a - b);
+    for (let i = 1; i < cuts.length; i++) {
+      const midpoint = (cuts[i - 1] + cuts[i]) / 2, length = cuts[i] - cuts[i - 1];
+      if (inPit(alongX ? midpoint : fixed + sign * 0.01, alongX ? fixed + sign * 0.01 : midpoint)) continue;
+      result.push({ x: alongX ? midpoint : fixed, z: alongX ? fixed : midpoint, width: alongX ? length : 0.12, depth: alongX ? 0.12 : length, length, alongX });
+    }
+  }
+  return result;
+}
+
 /** Swept relative crossing: fast falls and a moving hoop cannot tunnel past one another. */
 export function hoopCrossing(from: Point, to: Point, beforeTime: number, afterTime: number) {
   if (from[1] <= HOOP_Y || to[1] > HOOP_Y || to[1] >= from[1]) return false;
@@ -36,27 +55,6 @@ export function hoopCrossing(from: Point, to: Point, beforeTime: number, afterTi
   const z = from[2] + (to[2] - from[2]) * k;
   const t = beforeTime + (afterTime - beforeTime) * k;
   return Math.hypot(x - hoopX(t), z - HOOP_Z) < HOOP_RADIUS - 0.25;
-}
-
-/** A body entering the rim's vertical band activates physical collision before its feet tunnel through. */
-export function rimImpact(from: Point, to: Point, beforeTime: number, afterTime: number): Point | null {
-  const descending = to[1] < from[1];
-  const plane = HOOP_Y + (descending ? 0.85 : -0.95);
-  if (descending ? from[1] < plane || to[1] > plane : from[1] > plane || to[1] < plane) return null;
-  const dy = to[1] - from[1]; if (Math.abs(dy) < 1e-8) return null;
-  const k = (plane - from[1]) / dy;
-  const p: Point = [from[0] + (to[0] - from[0]) * k, plane, from[2] + (to[2] - from[2]) * k];
-  const radius = Math.hypot(p[0] - hoopX(beforeTime + (afterTime - beforeTime) * k), p[2] - HOOP_Z);
-  return radius > HOOP_RADIUS - 0.25 && radius < HOOP_RADIUS + 0.78 ? p : null;
-}
-
-/** The emitter has a solid underside: an ascending player must go around it. */
-export function undersideImpact(from: Point, to: Point, beforeTime: number, afterTime: number): Point | null {
-  const plane = HOOP_Y - 1.05;
-  if (to[1] <= from[1] || from[1] > plane || to[1] < plane) return null;
-  const k = (plane - from[1]) / (to[1] - from[1]);
-  const p: Point = [from[0] + (to[0] - from[0]) * k, plane, from[2] + (to[2] - from[2]) * k];
-  return Math.hypot(p[0] - hoopX(beforeTime + (afterTime - beforeTime) * k), p[2] - HOOP_Z) < HOOP_RADIUS + 0.3 ? p : null;
 }
 
 /** A late jump and the middle of the tongue give height; edges give a readable sideways shove. */

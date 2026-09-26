@@ -104,6 +104,8 @@ export class Physics {
   readonly substepHooks: ((h: number) => void)[] = [];
   /** Called after every fixed physics step (for reacting to contacts). */
   readonly postStepHooks: (() => void)[] = [];
+  /** Dynamic character actors whose real contacts participate in player impact detection. */
+  readonly contactActors = new Set<RAPIER.RigidBody>();
 
   constructor() {
     this.world = new RAPIER.World({ x: 0, y: -GRAVITY, z: 0 });

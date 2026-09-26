@@ -9,7 +9,7 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   const step = (seconds: number) => { for (let t = 0; t < seconds - 1e-5; t += 1 / 60) tick(1 / 60); draw(); };
   const report = () => {
     const l = level() as any;
-    info.textContent = JSON.stringify({ phase: l.phase, move: l.move, moveTime: Number(l.moveTime.toFixed(2)), mode: ctx.player.mode, pos: ctx.player.pos.map(n => +n.toFixed(2)), flight: l.flight, perfect: l.perfectLaunch, status: l.status, gettingUp: ctx.player.gettingUp, immunity: l.immunity, pitCamera: !!l.pitCamera }, null, 0);
+    info.textContent = JSON.stringify({ phase: l.phase, move: l.move, moveTime: Number(l.moveTime.toFixed(2)), mode: ctx.player.mode, pos: ctx.player.pos.map(n => +n.toFixed(2)), velocity: ctx.player.vel, dogDynamic: l.contactBody.body.isDynamic(), perfect: l.perfectLaunch, status: l.status, gettingUp: ctx.player.gettingUp, immunity: l.immunity, pitCamera: !!l.pitCamera }, null, 0);
   };
   const key = (code: string, down: boolean) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code }));
   const button = (name: string, fn: () => void) => {
@@ -18,12 +18,16 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
     b.onclick = () => { fn(); draw(); report(); }; panel.append(b);
   };
   const reset = () => { restart(); step(6); ctx.player.reset([0, 0, 6.5]); ctx.camera.reset(); step(0.1); ctx.hud.hide(); };
+  const place = (pos: [number, number, number]) => {
+    ctx.player.reset(pos); ctx.player.emerge([pos[0], pos[1] + 0.95, pos[2]], 0, [0, 0, 0], 0);
+    ctx.player.gettingUp = false; ctx.player.stun = 0; ctx.player.body!.muscle = 1;
+  };
   const battle = () => {
     reset();
     const l = level() as any;
     l.release(); step(8.3);
-    ctx.player.reset([0, 0, 0.4]); ctx.camera.reset();
-    l.puppy.pos = [0, 0, -3.4]; l.puppy.yaw = 0; l.setMove('chase'); step(0.1);
+    place([0, 0, 0.4]); ctx.camera.reset();
+    l.puppy.pos = [0, 0, -3.4]; l.puppy.yaw = 0; l.contactBody.resetToPose(); l.setMove('chase'); step(0.1);
   };
   button('Vault', reset);
   button('Release', () => { (level() as any).release(); step(1); });
@@ -36,6 +40,10 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   button('Look up', () => { ctx.camera.pitch = 0.95; step(0.35); });
   button('Paw', () => { battle(); (level() as any).beginAttack('paw'); step(0.7); });
   button('Paw reach', () => { battle(); ctx.player.reset([0, 0, 2.6]); (level() as any).beginAttack('paw'); step(0.7); });
+  button('Push dog', () => {
+    battle(); const l = level() as any; l.setMove('recover'); l.recoverTime = 30;
+    l.contactBody.body.applyImpulse({ x: l.contactBody.body.mass() * 5, y: 0, z: 0 }, true); step(0.25);
+  });
   button('Bark', () => { (level() as any).bark(); step(0.12); });
   button('Tail', () => { battle(); ctx.player.reset([1.2, 0, -6]); step(0.8); });
   button('Rear pit', () => {
@@ -43,8 +51,8 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
     ctx.player.reset([4.5, 0, -4.8]); ctx.camera.reset(0); step(0.1);
   });
   button('Puppy man', () => {
-    reset(); ctx.player.reset([12.35, 0, -12.35]); step(0.15);
-    ctx.player.emerge([0, 0.95, 3], 0, [0, 0, 0], 0); ctx.player.gettingUp = false; ctx.player.body!.muscle = 1;
+    reset(); place([9.15, 0, -12.8]); step(0.15);
+    place([0, 0, 3]);
     ctx.camera.reset(Math.PI); ctx.camera.pitch = -0.12; step(0.3); ctx.hud.hide();
   });
   button('Secret platform', () => {
@@ -52,20 +60,20 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   });
   button('Underside', () => {
     battle(); const l = level() as any; l.hoopTime = 1.8; l.setMove('recover'); l.recoverTime = 30;
-    ctx.player.pos = [5.6, 16.2, 2.8]; ctx.player.mode = 'flying'; ctx.player.flightDir = [0, 1, 0];
-    l.flight = [0, 10, 0]; l.highFlight = true; step(0.1);
+    place([5.6, 15.22, 2.8]);
+    l.launch([0, 10, 0], false); l.highFlight = true; step(0.1);
   });
   button('Pounce', () => { battle(); (level() as any).beginAttack('pounce'); step(0.4); });
   button('Pit', () => { battle(); ctx.player.reset([-12.5, 0.05, 3]); step(0.7); });
   button('Catch pit edge', () => {
     battle(); const l = level() as any; l.setMove('recover'); l.recoverTime = 30;
-    ctx.player.reset([-11.45, 0, 3]); l.launch([6, -1, 0], false); ctx.player.pos[1] = 0.72; step(0.025);
+    place([-11.45, 0.72, 3]); l.launch([6, -1, 0], false); step(0.025);
   });
   button('Rim', () => {
     battle(); const l = level() as any; l.setMove('recover'); l.recoverTime = 30;
     l.hoopTime = 1.8; step(0.02);
-    ctx.player.pos = [7.6, 18.7, 2.8]; ctx.player.mode = 'flying'; ctx.player.flightStyle = 'flail'; ctx.player.flightDir = [0, 1, 0];
-    l.flight = [0, -6, 0]; l.highFlight = true; l.flightYaw = 0; l.flightViewBlend = 1; step(0.15);
+    place([7.6, 17.72, 2.8]);
+    l.launch([0, -6, 0], false); l.highFlight = true; l.flightYaw = 0; l.flightViewBlend = 1; step(0.15);
   });
   button('+0.1s', () => step(0.1)); button('+0.5s', () => step(0.5)); button('+1s', () => step(1));
   button('Hide controls', () => { panel.style.display = 'none'; });

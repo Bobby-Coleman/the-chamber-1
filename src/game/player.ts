@@ -133,6 +133,8 @@ export class Player {
   /** Optional level tuning; other chambers retain their original recovery movement. */
   recoveryMoveScale = GETUP_MOVE_SCALE;
   knockProtection = 0;
+  /** Opt-in for encounters that keep launches and knockdowns in the physical body. */
+  physicsDrivenKnockdowns = false;
   puppyMan = false;
   private getUpTime = 0;
   private knockGrace = 0;
@@ -153,6 +155,7 @@ export class Player {
   private incoming = new Map<Body, Vec3>();
   /** Each body part's velocity just before the current physics step (by collider handle). */
   private partVelocity = new Map<number, Vec3>();
+  private actorVelocity = new Map<RAPIER.RigidBody, Vec3>();
   /**
    * Portal travel: the player is drawn scaled by `portalScale` about `portalPivot` (a portal's
    * centre), so at 0 they are a speck inside the portal. `inPortal` is set while being sucked in:
@@ -187,6 +190,7 @@ export class Player {
     this.gettingUp = false;
     this.recoveryMoveScale = GETUP_MOVE_SCALE;
     this.knockProtection = 0;
+    this.physicsDrivenKnockdowns = false;
     this.knockGrace = 0;
     this.pose = REST_POSE;
     this.portalScale = this.portalFrom = this.portalTo = 1;
@@ -443,6 +447,10 @@ export class Player {
 
   /** Before a step: remember how fast nearby loose objects and each body part were moving. */
   private recordIncoming() {
+    this.actorVelocity.clear();
+    for (const rb of this.physics?.contactActors ?? []) {
+      const v = rb.linvel(); this.actorVelocity.set(rb, [v.x, v.y, v.z]);
+    }
     this.incoming.clear();
     this.partVelocity.clear();
     const body = this.body;
@@ -478,8 +486,8 @@ export class Player {
 
     const consider = (name: PartName, rel: Vec3, impact: number, mass: number) => {
       const isHead = name === 'head';
-      const minSpeed = KNOCK_MIN_SPEED * (isHead ? 1 : BODY_KNOCK_SPEED_SCALE);
-      const minMomentum = KNOCK_MIN_MOMENTUM * (isHead ? 1 : BODY_KNOCK_MOMENTUM_SCALE);
+      const minSpeed = this.physicsDrivenKnockdowns ? (isHead ? 6 : 6.5) : KNOCK_MIN_SPEED * (isHead ? 1 : BODY_KNOCK_SPEED_SCALE);
+      const minMomentum = this.physicsDrivenKnockdowns ? (isHead ? 40 : 150) : KNOCK_MIN_MOMENTUM * (isHead ? 1 : BODY_KNOCK_MOMENTUM_SCALE);
       const momentum = impact * Math.min(mass, MAX_KNOCK_MASS);
       if (impact < minSpeed || momentum < minMomentum) return;
       const severity = clamp((momentum - minMomentum) / (STUN_MAX_MOMENTUM - minMomentum), 0, 1);
@@ -509,17 +517,24 @@ export class Player {
     const canBump = !this.gettingUp && this.knockGrace <= 0;
     PART_NAMES.forEach((name, i) => {
       if (!canBump) return;
-      if (name !== 'head' && name !== 'chest' && name !== 'pelvis') return;
+      if (name !== 'head' && name !== 'chest' && name !== 'pelvis' && !this.physicsDrivenKnockdowns) return;
       const part = body.colliders[i];
       const partVel = this.partVelocity.get(part.handle);
       if (!partVel) return;
       world.contactPairsWith(part, (other) => {
         const rb = other.parent();
-        if (body.owns(other) || (rb && rb.isDynamic())) return;
+        if (name !== 'head' && name !== 'chest' && name !== 'pelvis' && (!rb || !this.actorVelocity.has(rb))) return;
+        if (body.owns(other) || (rb && rb.isDynamic() && !this.actorVelocity.has(rb))) return;
         const lv = rb?.linvel();
-        const rel = sub(lv ? [lv.x, lv.y, lv.z] : [0, 0, 0], partVel);
+        const rel = sub((rb && this.actorVelocity.get(rb)) ?? (lv ? [lv.x, lv.y, lv.z] : [0, 0, 0]), partVel);
         world.contactPair(part, other, (manifold) => {
           if (manifold.numContacts() === 0 && manifold.numSolverContacts() === 0) return;
+          if (this.physicsDrivenKnockdowns && rb && this.actorVelocity.has(rb)) {
+            const p = body.position('pelvis');
+            if (Math.hypot(p[0] - this.pos[0], p[2] - this.pos[2]) > 0.3) {
+              this.pos[0] = this.driveFeet[0] = p[0]; this.pos[2] = this.driveFeet[2] = p[2];
+            }
+          }
           const n = manifold.normal();
           consider(name, rel, Math.abs(rel[0] * n.x + rel[1] * n.y + rel[2] * n.z), NON_PHYSICS_MASS);
         });
@@ -563,6 +578,10 @@ export class Player {
    */
   knock(velocity: Vec3, stunSeconds: number) {
     if (this.mode !== 'control' || !this.body || this.inPortal || this.knockProtection > 0) return;
+    if (this.physicsDrivenKnockdowns) {
+      this.releasePhysicalBody();
+      return;
+    }
     this.body.muscle = STUNNED_MUSCLE;
     this.stun = stunSeconds;
     this.gettingUp = true;
@@ -576,7 +595,22 @@ export class Player {
     if (this.mode === 'ragdoll' && this.body) {
       const p = this.body.position('pelvis');
       this.pos = [p[0], p[1] - 0.98, p[2]];
+      this.vel = this.body.velocity('pelvis');
     }
+  }
+
+  /** Release the current physical pose, without teleporting a single limb. */
+  releasePhysicalBody(velocity?: Vec3) {
+    const body = this.body;
+    if (!body?.isEnabled || this.inPortal) return;
+    if (velocity) {
+      const current = body.velocity('pelvis');
+      for (const part of Object.values(body.parts)) part.applyImpulse({ x: (velocity[0] - current[0]) * part.mass(), y: (velocity[1] - current[1]) * part.mass(), z: (velocity[2] - current[2]) * part.mass() }, true);
+    }
+    body.muscle = 0; body.setSelfCollision(true);
+    this.mode = 'ragdoll'; this.onGround = false; this.gettingUp = false; this.stun = 0;
+    this.collider?.setEnabled(false);
+    this.afterPhysics();
   }
 
   /** Switch scripted flight to a live, intact ragdoll. The owning level decides when to recover. */

@@ -11,6 +11,9 @@ export interface PuppyContact { pos: Vec3; radius: number; kind: 'body' | 'paw' 
 export class Puppy {
   pos: Vec3 = [0, 0, -10.5];
   yaw = 0;
+  physicalRoot: { pos: Vec3; yaw: number } | null = null;
+  physicalPaws: Vec3[] | null = null;
+  physicalTail: Vec3[] | null = null;
   time = 0;
   pose: PuppyPose = 'idle';
   charge = 0;
@@ -51,7 +54,8 @@ export class Puppy {
 
   get forward(): Vec3 { return [Math.sin(this.yaw), 0, Math.cos(this.yaw)]; }
 
-  private rootFrame() {
+  private rootFrame(physical = false) {
+    if (physical && this.physicalRoot) return mul(translation(this.physicalRoot.pos), rotationY(this.physicalRoot.yaw));
     const jump = this.airborne > 0.1 ? Math.sin(this.jumpPhase * Math.PI) : 0;
     return mul(translation([this.pos[0], this.pos[1] + this.airborne, this.pos[2]]), rotationY(this.yaw), rotationX(jump * Math.sin(this.jumpPhase * Math.PI * 2) * -0.16));
   }
@@ -93,7 +97,7 @@ export class Puppy {
     const breath = Math.sin(this.time * 2.3) * 0.04;
     const bounce = (1 - Math.cos(this.gait * 2)) * this.stride * 0.045;
     const jump = this.airborne > 0.1 ? Math.sin(this.jumpPhase * Math.PI) : 0;
-    const root = this.rootFrame();
+    const root = this.rootFrame(true);
     // Darkness is local to the vault. The same mesh gradually acquires light as it walks out.
     const light = easeInOut(clamp((this.pos[2] + 9.8) / 4.3, 0, 1));
     const shape = (mesh: MeshName, frame: Mat4, pos: Vec3, size: Vec3, color: number[]) => {
@@ -113,7 +117,12 @@ export class Puppy {
       for (const front of [-1, 1]) {
         const swipe = front > 0 && side === this.pawSide ? this.paw : 0;
         const hip: Vec3 = [side * 1.03, 1.9 + bounce - bow * (front > 0 ? 1 : 0.5), front * 1.25 - 0.2];
-        const foot = this.pawPosition(side, front);
+        let foot = this.pawPosition(side, front);
+        const solved = this.physicalPaws?.[(side === -1 ? 0 : 2) + (front === -1 ? 0 : 1)];
+        if (solved) {
+          const x = solved[0] - root[12], y = solved[1] - root[13], z = solved[2] - root[14];
+          foot = [root[0] * x + root[1] * y + root[2] * z, root[4] * x + root[5] * y + root[6] * z, root[8] * x + root[9] * y + root[10] * z];
+        }
         const knee: Vec3 = [side * 1.05 + swipe * side * 0.45, (hip[1] + foot[1]) / 2 + swipe * 0.15, (hip[2] + foot[2]) / 2 - 0.23];
         bone(root, hip, knee, 0.34, HONEY); bone(root, knee, foot, 0.28, HONEY);
         shape('sphere', root, foot, [0.59, 0.33, 0.71], CREAM);
@@ -162,7 +171,12 @@ export class Puppy {
     shape('cylinder', collar, [0, 0, 0], [1.4, 0.31, 1.25], [0.035, 0.42, 0.42]);
     shape('sphere', root, [0, 1.2 - bow * 0.7 + bounce, 2.01], [0.32, 0.39, 0.1], [1, 0.71, 0.17]);
     const tail = this.tailFrame(root);
-    shape('sphere', tail, [0, 0.15, -0.95], [0.38, 0.42, 1.45], HONEY);
-    shape('sphere', tail, [0, 0.15, -2.0], [0.37, 0.4, 0.58], CREAM);
+    if (this.physicalTail) {
+      bone(translation([0, 0, 0]), transformPoint(root, [0, 2.25 + bounce, -2]), this.physicalTail[0], 0.38, HONEY);
+      bone(translation([0, 0, 0]), this.physicalTail[0], this.physicalTail[1], 0.35, CREAM);
+    } else {
+      shape('sphere', tail, [0, 0.15, -0.95], [0.38, 0.42, 1.45], HONEY);
+      shape('sphere', tail, [0, 0.15, -2.0], [0.37, 0.4, 0.58], CREAM);
+    }
   }
 }
