@@ -116,6 +116,9 @@ export class Player {
   facing = 0;
   /** Head direction while flying; the body keeps it when it lands (stuck / splat). */
   flightDir: Vec3 = [0, 0, -1];
+  /** Levels can use a loose, spread-limb pose for launches instead of the default dart pose. */
+  flightStyle: 'dart' | 'flail' = 'dart';
+  flightAge = 0;
   mode: PlayerMode = 'control';
   onGround = true;
   /** The player's movement capsule; exclude it from ray casts. */
@@ -168,6 +171,8 @@ export class Player {
     this.vel = [0, 0, 0];
     this.facing = facing;
     this.flightDir = [0, 0, -1];
+    this.flightStyle = 'dart';
+    this.flightAge = 0;
     this.mode = 'control';
     this.onGround = true;
     this.stun = 0;
@@ -635,6 +640,16 @@ export class Player {
           kneeL: -0.7 - Math.sin(t * 15) * 0.5, kneeR: -0.7 + Math.sin(t * 15) * 0.5,
         };
       case 'flying':
+        if (this.flightStyle === 'flail') {
+          const a = this.flightAge;
+          return {
+            lean: -0.1, headPitch: 0.15,
+            shoulderL: 0.4 + Math.sin(a * 7) * 0.35, shoulderR: 0.4 + Math.cos(a * 7) * 0.35,
+            armOut: 1.0, elbowL: 0.6, elbowR: 0.7,
+            hipL: 0.25 + Math.sin(a * 6) * 0.2, hipR: -0.1 - Math.sin(a * 6) * 0.2,
+            kneeL: -0.5, kneeR: -0.65,
+          };
+        }
         return {
           lean: 0, headPitch: 0.3, shoulderL: Math.PI, shoulderR: Math.PI, armOut: 0.05, elbowL: 0, elbowR: 0,
           hipL: 0.05, hipR: 0.05, kneeL: -0.1 - Math.sin(t * 10) * 0.15, kneeR: -0.1 + Math.sin(t * 10) * 0.15,

@@ -17,6 +17,8 @@ const HOLE_RIM = [0.85, 0.06, 0.04];
 export interface ChamberOptions {
   /** A round hole through the north wall, centred at (x, y) on the wall, with this radius (m). */
   hole?: { x: number; y: number; radius: number };
+  /** Rectangular holes through the floor; levels draw their own pit walls / bottoms. */
+  pits?: { x: number; z: number; width: number; depth: number }[];
 }
 
 interface WallBox {
@@ -39,6 +41,30 @@ function chamberBoxes(opts: ChamberOptions): WallBox[] {
     { pos: [-CHAMBER_HALF - 0.5, wy, 0], size: [WALL_THICKNESS, h + 0.2, size], color: WALL, panel: 2 },
     { pos: [CHAMBER_HALF + 0.5, wy, 0], size: [WALL_THICKNESS, h + 0.2, size], color: WALL, panel: 2 },
   ];
+  if (opts.pits?.length) {
+    // Replace both the chamber floor and the ground underneath it, so pits are real openings.
+    boxes.splice(0, 2);
+    for (const s of [-1, 1]) {
+      boxes.push({ pos: [s * 231, -0.6, 0], size: [438, 1, 900], color: OUTSIDE, panel: 8 });
+      boxes.push({ pos: [0, -0.6, s * 231], size: [24, 1, 438], color: OUTSIDE, panel: 8 });
+    }
+    const xs = [...new Set([-CHAMBER_HALF, CHAMBER_HALF, ...opts.pits.flatMap(p => [p.x - p.width / 2, p.x + p.width / 2])])].sort((a, b) => a - b);
+    const zs = [...new Set([-CHAMBER_HALF, CHAMBER_HALF, ...opts.pits.flatMap(p => [p.z - p.depth / 2, p.z + p.depth / 2])])].sort((a, b) => a - b);
+    for (let zi = 1; zi < zs.length; zi++) {
+      const z = (zs[zi - 1] + zs[zi]) / 2;
+      let start: number | null = null;
+      for (let xi = 1; xi <= xs.length; xi++) {
+        const x = (xs[xi - 1] + xs[xi]) / 2;
+        const cut = xi === xs.length || opts.pits.some(p => Math.abs(x - p.x) < p.width / 2 && Math.abs(z - p.z) < p.depth / 2);
+        if (!cut && start === null) start = xs[xi - 1];
+        if (cut && start !== null) {
+          // Merge contiguous floor cells into strips, avoiding hundreds of tiny draw calls.
+          boxes.push({ pos: [(start + xs[xi - 1]) / 2, -0.25, z], size: [xs[xi - 1] - start, 0.5, zs[zi] - zs[zi - 1]], color: FLOOR, panel: 2 });
+          start = null;
+        }
+      }
+    }
+  }
   const hole = opts.hole;
   const left = -CHAMBER_HALF - 1, right = CHAMBER_HALF + 1;
   if (!hole) {

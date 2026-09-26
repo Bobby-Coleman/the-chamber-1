@@ -15,6 +15,7 @@ import { CakeLevel } from './levels/cake/cakeLevel';
 import { GrenadeLevel } from './levels/grenade/grenadeLevel';
 import type { Level, LevelContext, TrackedTarget, WorldLabel } from './levels/level';
 import { LobbyLevel } from './levels/lobby/lobbyLevel';
+import { PuppyLevel } from './levels/puppy/puppyLevel';
 
 const SPAWN: Vec3 = [0, 0, 6];
 /** Seconds on the title screen before the game starts by itself. */
@@ -25,6 +26,7 @@ const LEVELS: ((ctx: LevelContext) => Level)[] = [
   (ctx) => new GrenadeLevel(ctx),
   // Meant to be a secret level reached by an easter egg; level 3 for now.
   (ctx) => new CakeLevel(ctx),
+  (ctx) => new PuppyLevel(ctx),
 ];
 const params = new URLSearchParams(location.search);
 /** `?sandbox` opens the mechanics test room; `?level=N` skips the lobby and starts at level N. */
@@ -258,7 +260,7 @@ async function main() {
   function frame(now: number) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    tick(dt);
+    if (!(import.meta.env.DEV && params.has('puppyQa'))) tick(dt);
     draw(dt);
     requestAnimationFrame(frame);
   }
@@ -282,6 +284,11 @@ async function main() {
         interaction,
       },
     });
+    if (params.has('puppyQa') && level instanceof PuppyLevel) {
+      begin();
+      const { puppyQa } = await import('./dev/puppyQa');
+      puppyQa(ctx, () => level, startLevel, tick, () => draw(1 / 60));
+    }
   }
 }
 

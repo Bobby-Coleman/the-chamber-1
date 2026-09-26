@@ -11,3 +11,6 @@
 ## Assets
 
 None yet — all models are built from primitives in code.
+
+The puppy, containment vault and articulated portal emitter are original procedural models.
+Puppy barks, lick and landing cues are synthesized with Web Audio; no external audio assets are used.
