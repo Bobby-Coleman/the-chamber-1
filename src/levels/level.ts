@@ -55,6 +55,9 @@ export interface Level {
   status: LevelStatus;
   update(dt: number): void;
   draw(out: DrawItem[], time: number): void;
+  /** Optional title-screen composition that keeps the level's surprises hidden. */
+  drawPreview?(out: DrawItem[], time: number): void;
+  previewCameraShot?(time: number): CameraShot;
   environment(): Environment;
   /** Extra circular obstacles the player collides with. */
   obstacles(): Circle[];

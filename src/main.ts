@@ -107,6 +107,12 @@ async function main() {
   let playing = false;
   let level: Level = makeLevel(ctx);
   addChamberColliders(ctx.physics, level.chamber);
+  const previewShot = level.previewCameraShot?.(0);
+  if (previewShot) {
+    // Start inside the composition so the first frame cannot flash an overhead view.
+    camera.pos = [...previewShot.pos];
+    camera.target = [...previewShot.target];
+  }
   hud.show('THE CHAMBER', 'Click to begin\nWASD move · Mouse look · Shift sprint · Space jump · E use · Hold click carry · Right-click throw · R restart · Esc pause');
   hud.setLevel('');
 
@@ -227,9 +233,13 @@ async function main() {
       else camera.follow(dt, player, level.chamber?.halfSize);
       hud.crosshair(interaction.state);
     } else {
-      // Title screen: slow orbit around the empty chamber.
-      const a = time * 0.1;
-      camera.moveTo([Math.sin(a) * 26, 24, Math.cos(a) * 26], [0, 2, 0], dt, 2);
+      const preview = level.previewCameraShot?.(time);
+      if (preview) camera.moveTo(preview.pos, preview.target, dt, preview.sharpness);
+      else {
+        // Default title screen: slow orbit around the empty chamber.
+        const a = time * 0.1;
+        camera.moveTo([Math.sin(a) * 26, 24, Math.cos(a) * 26], [0, 2, 0], dt, 2);
+      }
       hud.crosshair('hidden');
       if (time >= TITLE_AUTOSTART) begin();
     }
@@ -250,7 +260,8 @@ async function main() {
     drawChamber(draws, level.chamber);
     ctx.physics.draw(draws, time);
     player.draw(draws, time);
-    level.draw(draws, time);
+    if (!playing && level.drawPreview) level.drawPreview(draws, time);
+    else level.draw(draws, time);
 
     renderer.render(draws, view, level.environment(), time);
     hud.markers(playing ? screenMarkers(level.trackedTargets?.() ?? [], view.view, view.proj, camera.fov) : []);

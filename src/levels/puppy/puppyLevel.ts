@@ -494,11 +494,20 @@ export class PuppyLevel implements Level {
     ]);
   }
 
-  draw(out: DrawItem[]) {
+  previewCameraShot(time: number): CameraShot {
+    return { pos: [Math.sin(time * 0.12) * 0.8, 2.4, 7], target: [0, 3.5, -7.5], sharpness: 2 };
+  }
+
+  drawPreview(out: DrawItem[], time: number) {
+    // Omit the overhead machine entirely, including its shadow, until play begins.
     out.push(...this.scenery);
-    this.arrival.draw(out);
-    this.vault.draw(out, this.time);
+    this.vault.draw(out, time);
     this.puppy.draw(out);
+  }
+
+  draw(out: DrawItem[]) {
+    this.drawPreview(out, this.time);
+    this.arrival.draw(out);
     this.drawGreeting(out);
     this.drawHoop(out);
     if (this.phase === 'play') this.drawTells(out);
