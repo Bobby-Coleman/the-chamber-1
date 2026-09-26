@@ -12,7 +12,9 @@ export function pawSweepPoint(side: number, progress: number): Point {
   const t = Math.max(0, Math.min(1, progress));
   return [side * (2.7 - t * 5.4), 1.5 - Math.sin(t * Math.PI) * 0.55, 2.7 + Math.sin(t * Math.PI) * 1.15];
 }
+export const REAR_PIT = { x: 0, z: -9.7, width: 12, depth: 6.4 };
 export const PITS = [
+  REAR_PIT,
   { x: -12.5, z: 1.5, width: 3, depth: 25 },
   { x: 12.5, z: 1.5, width: 3, depth: 25 },
   { x: 0, z: 12.5, width: 22, depth: 3 },
@@ -46,6 +48,15 @@ export function rimImpact(from: Point, to: Point, beforeTime: number, afterTime:
   const p: Point = [from[0] + (to[0] - from[0]) * k, plane, from[2] + (to[2] - from[2]) * k];
   const radius = Math.hypot(p[0] - hoopX(beforeTime + (afterTime - beforeTime) * k), p[2] - HOOP_Z);
   return radius > HOOP_RADIUS - 0.25 && radius < HOOP_RADIUS + 0.78 ? p : null;
+}
+
+/** The emitter has a solid underside: an ascending player must go around it. */
+export function undersideImpact(from: Point, to: Point, beforeTime: number, afterTime: number): Point | null {
+  const plane = HOOP_Y - 1.05;
+  if (to[1] <= from[1] || from[1] > plane || to[1] < plane) return null;
+  const k = (plane - from[1]) / (to[1] - from[1]);
+  const p: Point = [from[0] + (to[0] - from[0]) * k, plane, from[2] + (to[2] - from[2]) * k];
+  return Math.hypot(p[0] - hoopX(beforeTime + (afterTime - beforeTime) * k), p[2] - HOOP_Z) < HOOP_RADIUS + 0.3 ? p : null;
 }
 
 /** A late jump and the middle of the tongue give height; edges give a readable sideways shove. */

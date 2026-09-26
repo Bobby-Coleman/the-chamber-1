@@ -4,7 +4,11 @@ import { createServer } from 'vite';
 // Use Vite's real loader so physics and gameplay run against the same modules as the browser.
 const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
 let count = 0;
-const check = (name, run) => { run(); count++; console.log(`PASS ${name}`); };
+let failed = 0;
+const check = (name, run) => {
+  try { run(); count++; console.log(`PASS ${name}`); }
+  catch (error) { failed++; console.error(`FAIL ${name}: ${error.message.slice(0, 500)}`); }
+};
 try {
   const { initPhysics, Physics } = await server.ssrLoadModule('/src/engine/physics.ts');
   const { Player } = await server.ssrLoadModule('/src/game/player.ts');
@@ -56,7 +60,8 @@ try {
   });
   check('real chamber collider has open pits and a solid safe floor', () => {
     const f = fixture(); f.physics.step(0.02);
-    for (const pit of rules.PITS) assert.equal(f.physics.raycast([pit.x, 1, pit.z], [0, -1, 0], 5), null);
+    f.level.bridge.update(1); f.physics.step(0.02);
+    for (const pit of rules.PITS) assert.ok(!f.physics.raycast([pit === rules.REAR_PIT ? 4 : pit.x, 1, pit.z], [0, -1, 0], 5), 'pit must have no floor');
     assert.ok(f.physics.raycast([4, 1, 5], [0, -1, 0], 2));
   });
   check('button is one-shot and reveal reaches active encounter', () => {
@@ -76,14 +81,13 @@ try {
     assert.ok(f.level.immunity > 0); assert.equal(f.level.status, 'playing');
     f.step(5); assert.equal(f.player.gettingUp, false); assert.ok(f.player.pos[1] >= -0.1);
   });
-  check('paws, pounce and tail have a wind-up followed by knockback', () => {
-    for (const attack of ['paw', 'tail', 'pounce']) {
+  check('paws and pounce have a wind-up followed by knockback', () => {
+    for (const attack of ['paw', 'pounce']) {
       const f = fixture(); f.battle();
       if (attack === 'paw') f.player.reset([0, 0, 0.4]);
-      if (attack === 'tail') { f.level.puppy.pos = [0, 0, 0]; f.player.reset([1.2, 0, -3]); }
       if (attack === 'pounce') { f.player.reset([0, 0, 1]); f.level.pounceStart = [...f.level.puppy.pos]; f.level.target = [0, 0, 0]; }
       f.level.setMove(attack); f.step(0.4); assert.equal(f.level.flight, null, attack);
-      f.step(attack === 'pounce' ? f.level.pounceWindup + f.level.pounceAirtime - 0.35 : 0.7); assert.ok(f.level.flight, attack);
+      f.step(attack === 'pounce' ? f.level.pounceWindup + f.level.pounceAirtime - 0.35 : 0.7); assert.ok(f.level.flight || f.player.gettingUp, attack);
     }
   });
   check('walking into a pit loses the attempt', () => {
@@ -129,6 +133,8 @@ try {
     const moves = [];
     for (let i = 0; i < 9; i++) {
       f.player.reset([0, 0, 0.4]); f.level.puppy.pos = [0, 0, -3.4]; f.level.puppy.yaw = 0;
+      // Isolate scheduling from the separately tested incidental shoulder / paw contacts.
+      f.player.knockProtection = 100; f.level.immunity = 0;
       f.level.setMove('chase');
       for (let t = 0; t < 3 && f.level.move === 'chase'; t += 0.05) f.step(0.05);
       moves.push(f.level.move);
@@ -156,7 +162,7 @@ try {
       const f = fixture(); f.battle(); f.player.reset([0, 0, 2.6]);
       f.level.puppy.pawSide = side; f.level.setMove('paw');
       f.step(0.7); assert.equal(f.level.flight, null, 'wind-up must stay safe');
-      f.step(0.4); assert.ok(f.level.flight, `extended ${side} paw should connect`);
+      f.step(0.4); assert.ok(f.level.flight || f.player.gettingUp, `extended ${side} paw should connect`);
     }
   });
   check('pounce timing varies but always gives a readable bow and a fast jump', () => {
@@ -194,8 +200,86 @@ try {
     const front = Math.max(...draws.map(d => d.model[14] + Math.abs(d.model[2]) + Math.abs(d.model[6]) + Math.abs(d.model[10])));
     assert.ok(front < -6.55, `puppy front ${front} must stay behind gate`);
   });
+  check('ascending into the emitter underside bonks and tumbles instead of passing through', () => {
+    const f = fixture({ safeFloor: true }); f.battle(); f.level.hoopTime = 1.8;
+    f.player.pos = [5.6, rules.HOOP_Y - 1.3, rules.HOOP_Z];
+    f.player.mode = 'flying'; f.player.flightDir = [0, 1, 0]; f.level.flight = [0, 10, 0]; f.level.highFlight = true;
+    f.step(0.05);
+    assert.equal(f.player.mode, 'ragdoll'); assert.equal(f.level.tumbling, true);
+    assert.ok(f.player.body.parts.pelvis.linvel().y < 0);
+    assert.equal(f.player.inPortal, false);
+  });
+  check('a limp descending player wins and keeps the actual body pose', () => {
+    const f = fixture(); f.battle(); f.level.hoopTime = 1.8;
+    f.player.pos = [5.6, rules.HOOP_Y + 1.5, rules.HOOP_Z];
+    f.player.mode = 'flying'; f.player.flightDir = [0, 1, 0];
+    f.player.startTumble([0, -4, 0], [0, 0, 0]);
+    f.level.tumbling = true; f.level.highFlight = true;
+    f.step(0.45);
+    assert.equal(f.level.phase, 'escape'); assert.equal(f.player.inPortal, true);
+    assert.equal(f.player.body.brokenJoints, 0);
+    f.step(1.3); assert.equal(f.level.status, 'exited');
+  });
+  check('rear bridge stays under the puppy then retracts to reveal a real shaft', () => {
+    const f = fixture(); f.physics.step(0.02);
+    assert.ok(f.physics.raycast([4, 1, -9.7], [0, -1, 0], 2));
+    f.level.release(); f.step(7.5);
+    assert.equal(f.level.bridge.retraction, 0, 'wait until the whole puppy clears the bridge');
+    f.step(2.8);
+    assert.equal(f.level.bridge.retraction, 1);
+    assert.ok(!f.physics.raycast([4, 1, -9.7], [0, -1, 0], 3));
+  });
+  check('secret is on the exterior right rear landing and unlocks puppy man through restarts', () => {
+    const f = fixture();
+    assert.ok(f.physics.raycast([12.35, 1, -12.35], [0, -1, 0], 2));
+    f.player.reset([12.35, 0, -12.35]); f.step(0.05);
+    assert.equal(f.player.puppyMan, true); assert.equal(f.level.secretFound, true);
+    f.player.reset([0, 0, 0]); assert.equal(f.player.puppyMan, true);
+  });
+  check('a knock can send the player through the open gate into the rear pit', () => {
+    const f = fixture(); f.battle(); f.level.bridge.update(1); f.level.setMove('recover'); f.level.recoverTime = 30;
+    f.player.reset([4, 0, -5.5]); f.level.launch([0, 5, -5], false); f.step(2.5);
+    assert.equal(f.level.status, 'lost'); assert.ok(f.player.pos[2] < -6.5);
+  });
+  check('flight respects vault walls and roof but can use the open doorway', () => {
+    const f = fixture();
+    assert.ok(f.level.vault.flightImpact([4, 2, -5], [4, 2, -8]));
+    f.level.vault.update(1);
+    assert.equal(f.level.vault.flightImpact([4, 2, -5], [4, 2, -8]), null);
+    assert.ok(f.level.vault.flightImpact([5, 2, -9], [10, 2, -9]));
+    assert.ok(f.level.vault.flightImpact([0, 12, -9], [0, 7, -9]));
+  });
+  check('the exterior secret platform can be reached from the air beside the cage', () => {
+    const f = fixture(); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30;
+    f.player.reset([12.35, 1.5, -10.8]); f.level.launch([0, 1, -2], false); f.step(1.3);
+    assert.equal(f.level.phase, 'play'); assert.equal(f.player.mode, 'control');
+    assert.ok(f.player.pos[2] < -11.1); assert.ok(f.player.pos[1] > -0.2);
+  });
+  check('recovery accepts movement and protects against another knockdown', () => {
+    const f = fixture(); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30;
+    f.player.emerge([5, 0.95, 2], 0, [0, 0, 0], 0.15); f.player.recoveryMoveScale = 0.5;
+    f.down.add('KeyD'); f.step(0.55);
+    assert.ok(f.player.pos[0] > 5.35, `recovery should move: ${f.player.pos[0]}`);
+    assert.ok(f.player.knockProtection > 0);
+    const stun = f.player.stun; f.player.knock([20, 10, 0], 2);
+    assert.equal(f.player.stun, stun, 'protected recovery must not restart its stun');
+  });
+  check('turning shoulders knock a nearby player without a scheduled attack', () => {
+    const f = fixture(); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30;
+    f.step(0.05); f.player.emerge([2.05, 0.95, -2.6], 0, [0, 0, 0], 0);
+    f.player.gettingUp = false; f.player.body.muscle = 1; f.level.immunity = 0;
+    for (let i = 0; i < 12 && !f.player.gettingUp; i++) { f.level.puppy.yaw += 0.14; f.step(0.04); }
+    assert.equal(f.player.gettingUp, true); assert.equal(f.level.move, 'recover');
+  });
+  check('a natural wag knocks behind the puppy without the removed tail attack', () => {
+    const f = fixture(); f.battle(); f.level.setMove('recover'); f.level.recoverTime = 30; f.step(0.05);
+    f.player.emerge([0.9, 0.95, -6.8], 0, [0, 0, 0], 0); f.player.gettingUp = false;
+    f.player.body.muscle = 1; f.level.immunity = 0; f.step(0.8);
+    assert.equal(f.player.gettingUp, true); assert.equal(f.level.move, 'recover');
+  });
   for (const world of worlds) world.dispose();
   console.log(`${count} puppy checks passed`);
+  assert.equal(failed, 0, `${failed} puppy checks failed`);
 } finally {
   await server.close();
 }

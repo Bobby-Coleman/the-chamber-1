@@ -38,6 +38,23 @@ export function puppyQa(ctx: LevelContext, level: () => unknown, restart: () => 
   button('Paw reach', () => { battle(); ctx.player.reset([0, 0, 2.6]); (level() as any).beginAttack('paw'); step(0.7); });
   button('Bark', () => { (level() as any).bark(); step(0.12); });
   button('Tail', () => { battle(); ctx.player.reset([1.2, 0, -6]); step(0.8); });
+  button('Rear pit', () => {
+    battle(); const l = level() as any; l.setMove('recover'); l.recoverTime = 30; step(2);
+    ctx.player.reset([4.5, 0, -4.8]); ctx.camera.reset(0); step(0.1);
+  });
+  button('Puppy man', () => {
+    reset(); ctx.player.reset([12.35, 0, -12.35]); step(0.15);
+    ctx.player.emerge([0, 0.95, 3], 0, [0, 0, 0], 0); ctx.player.gettingUp = false; ctx.player.body!.muscle = 1;
+    ctx.camera.reset(Math.PI); ctx.camera.pitch = -0.12; step(0.3); ctx.hud.hide();
+  });
+  button('Secret platform', () => {
+    reset(); ctx.player.reset([12.35, 0, -11.1]); ctx.camera.reset(); ctx.camera.pitch = -0.4; step(0.25);
+  });
+  button('Underside', () => {
+    battle(); const l = level() as any; l.hoopTime = 1.8; l.setMove('recover'); l.recoverTime = 30;
+    ctx.player.pos = [5.6, 16.2, 2.8]; ctx.player.mode = 'flying'; ctx.player.flightDir = [0, 1, 0];
+    l.flight = [0, 10, 0]; l.highFlight = true; step(0.1);
+  });
   button('Pounce', () => { battle(); (level() as any).beginAttack('pounce'); step(0.4); });
   button('Pit', () => { battle(); ctx.player.reset([-12.5, 0.05, 3]); step(0.7); });
   button('Catch pit edge', () => {

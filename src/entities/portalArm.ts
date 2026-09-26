@@ -7,8 +7,11 @@ const STEEL = [0.16, 0.20, 0.25], PLATE = [0.39, 0.45, 0.49], ORANGE = [0.88, 0.
 /** One compound kinematic body: real rim contacts can catch individual ragdoll limbs. */
 export class PortalRim {
   private body: RAPIER.RigidBody;
+  private underside: RAPIER.Collider;
   constructor(physics: Physics, centre: Vec3, radius: number) {
     this.body = physics.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(...centre));
+    this.underside = physics.world.createCollider(RAPIER.ColliderDesc.cylinder(0.075, radius).setTranslation(0, -0.11, 0).setRestitution(0.15), this.body);
+    this.underside.setEnabled(false);
     for (let i = 0; i < 32; i++) {
       const a = i / 32 * Math.PI * 2;
       const collider = RAPIER.ColliderDesc.cuboid(0.24, 0.18, 0.26)
@@ -18,6 +21,7 @@ export class PortalRim {
     }
   }
   move(centre: Vec3) { this.body.setNextKinematicTranslation({ x: centre[0], y: centre[1], z: centre[2] }); }
+  setUndersideSolid(solid: boolean) { this.underside.setEnabled(solid); }
 }
 
 /** Articulated portal emitter, bolted to the west wall. Its wrist carries the ring at its edge. */

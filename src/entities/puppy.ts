@@ -1,10 +1,11 @@
-import { basis, clamp, cross, easeInOut, length, mul, normalize, rotationX, rotationY, rotationZ, scale, scaling, sub, translation, type Mat4, type Vec3 } from '../engine/math';
+import { basis, clamp, cross, easeInOut, length, mul, normalize, rotationX, rotationY, rotationZ, scale, scaling, sub, transformPoint, translation, type Mat4, type Vec3 } from '../engine/math';
 import { Pattern, type DrawItem, type MeshName } from '../engine/renderer';
 import { pawSweepPoint } from '../levels/puppy/mechanics';
 
 const GOLD = [0.69, 0.36, 0.12], HONEY = [0.91, 0.60, 0.28], CREAM = [0.99, 0.84, 0.60];
 const DARK = [0.035, 0.022, 0.019], PINK = [0.97, 0.25, 0.39];
-export type PuppyPose = 'idle' | 'walk' | 'lick' | 'pounce' | 'tail' | 'paw' | 'happy';
+export type PuppyPose = 'idle' | 'walk' | 'lick' | 'pounce' | 'paw' | 'happy';
+export interface PuppyContact { pos: Vec3; radius: number; kind: 'body' | 'paw' | 'tail' }
 
 /** Rounded, procedural golden retriever; +z is its nose. No external assets. */
 export class Puppy {
@@ -26,7 +27,6 @@ export class Puppy {
   private bow = 0;
   private nod = 0;
   private paw = 0;
-  private tailPower = 0;
   private blinkClock = 1;
   private nextBlink = 2.8;
   private barkClock = 1;
@@ -46,11 +46,44 @@ export class Puppy {
     this.bow += ((this.pose === 'pounce' ? this.charge * 0.9 : 0) - this.bow) * k;
     this.nod += ((this.pose === 'lick' ? this.charge * 0.5 - this.stroke * 0.65 : 0) - this.nod) * k;
     this.paw += ((this.pose === 'paw' ? this.charge : 0) - this.paw) * (1 - Math.exp(-dt * 15));
-    this.tailPower += ((this.pose === 'tail' ? 1 : 0) - this.tailPower) * k;
     this.oldPos = [...this.pos]; this.oldYaw = this.yaw;
   }
 
   get forward(): Vec3 { return [Math.sin(this.yaw), 0, Math.cos(this.yaw)]; }
+
+  private rootFrame() {
+    const jump = this.airborne > 0.1 ? Math.sin(this.jumpPhase * Math.PI) : 0;
+    return mul(translation([this.pos[0], this.pos[1] + this.airborne, this.pos[2]]), rotationY(this.yaw), rotationX(jump * Math.sin(this.jumpPhase * Math.PI * 2) * -0.16));
+  }
+
+  private pawPosition(side: number, front: number): Vec3 {
+    const phase = ((this.gait / (Math.PI * 2) + (side * front > 0 ? 0 : 0.5)) % 1 + 1) % 1;
+    const stance = phase < 0.62, t = stance ? phase / 0.62 : (phase - 0.62) / 0.38;
+    const lift = stance ? 0 : Math.sin(t * Math.PI) * this.stride * 0.46;
+    const swing = (stance ? 0.7 - t * 1.4 : -0.7 + easeInOut(t) * 1.4) * this.stride;
+    const swipe = front > 0 && side === this.pawSide ? this.paw : 0;
+    const jump = this.airborne > 0.1 ? Math.sin(this.jumpPhase * Math.PI) : 0;
+    const arc = pawSweepPoint(this.pawSide, this.pawSweep);
+    return [side * 1.05 * (1 - swipe) + arc[0] * swipe, (0.30 + lift + jump * 0.6) * (1 - swipe) + arc[1] * swipe, (front * 1.25 + swing + jump * front * 0.45) * (1 - swipe) + arc[2] * swipe];
+  }
+
+  private tailFrame(root: Mat4) {
+    const light = easeInOut(clamp((this.pos[2] + 9.8) / 4.3, 0, 1));
+    const bounce = (1 - Math.cos(this.gait * 2)) * this.stride * 0.045;
+    return mul(root, translation([0, 2.25 + bounce, -2.0]), rotationY(Math.sin(this.time * 8) * 0.65), rotationX(-1.1 + light * 0.35));
+  }
+
+  /** Physics follows the very same paw and tail transforms as the visible model. */
+  contactPoints(): PuppyContact[] {
+    const root = this.rootFrame(), tail = this.tailFrame(root);
+    const points: PuppyContact[] = [
+      { pos: transformPoint(root, [0, 1.8 - this.bow * 0.3, -0.8]), radius: 1.35, kind: 'body' },
+      { pos: transformPoint(root, [0, 1.6 - this.bow, 0.8]), radius: 1.2, kind: 'body' },
+    ];
+    for (const side of [-1, 1]) for (const front of [-1, 1]) points.push({ pos: transformPoint(root, this.pawPosition(side, front)), radius: 0.58, kind: 'paw' });
+    for (const z of [-1.1, -2.0]) points.push({ pos: transformPoint(tail, [0, 0.15, z]), radius: 0.4, kind: 'tail' });
+    return points;
+  }
 
   draw(out: DrawItem[]) {
     const wag = Math.sin(this.time * 8);
@@ -60,7 +93,7 @@ export class Puppy {
     const breath = Math.sin(this.time * 2.3) * 0.04;
     const bounce = (1 - Math.cos(this.gait * 2)) * this.stride * 0.045;
     const jump = this.airborne > 0.1 ? Math.sin(this.jumpPhase * Math.PI) : 0;
-    const root = mul(translation([this.pos[0], this.pos[1] + this.airborne, this.pos[2]]), rotationY(this.yaw), rotationX(jump * Math.sin(this.jumpPhase * Math.PI * 2) * -0.16));
+    const root = this.rootFrame();
     // Darkness is local to the vault. The same mesh gradually acquires light as it walks out.
     const light = easeInOut(clamp((this.pos[2] + 9.8) / 4.3, 0, 1));
     const shape = (mesh: MeshName, frame: Mat4, pos: Vec3, size: Vec3, color: number[]) => {
@@ -78,16 +111,9 @@ export class Puppy {
     shape('sphere', root, [0, 1.4 - bow, 1.8], [0.96, 0.99, 0.39], CREAM);
     for (const side of [-1, 1]) {
       for (const front of [-1, 1]) {
-        const phase = ((this.gait / (Math.PI * 2) + (side * front > 0 ? 0 : 0.5)) % 1 + 1) % 1;
-        // A planted stance travels backwards at walking speed; only the return step lifts.
-        const stance = phase < 0.62;
-        const stepT = stance ? phase / 0.62 : (phase - 0.62) / 0.38;
-        const lift = stance ? 0 : Math.sin(stepT * Math.PI) * this.stride * 0.46;
-        const swing = (stance ? 0.7 - stepT * 1.4 : -0.7 + easeInOut(stepT) * 1.4) * this.stride;
         const swipe = front > 0 && side === this.pawSide ? this.paw : 0;
         const hip: Vec3 = [side * 1.03, 1.9 + bounce - bow * (front > 0 ? 1 : 0.5), front * 1.25 - 0.2];
-        const arc = pawSweepPoint(this.pawSide, this.pawSweep);
-        const foot: Vec3 = [side * 1.05 * (1 - swipe) + arc[0] * swipe, (0.30 + lift + jump * 0.6) * (1 - swipe) + arc[1] * swipe, (front * 1.25 + swing + jump * front * 0.45) * (1 - swipe) + arc[2] * swipe];
+        const foot = this.pawPosition(side, front);
         const knee: Vec3 = [side * 1.05 + swipe * side * 0.45, (hip[1] + foot[1]) / 2 + swipe * 0.15, (hip[2] + foot[2]) / 2 - 0.23];
         bone(root, hip, knee, 0.34, HONEY); bone(root, knee, foot, 0.28, HONEY);
         shape('sphere', root, foot, [0.59, 0.33, 0.71], CREAM);
@@ -119,22 +145,23 @@ export class Puppy {
     const reach = this.tongue, flick = this.stroke;
     // A curved ribbon built along a cubic Bezier: extend low, curl up, then retract along the same path.
     const p0: Vec3 = [0, -0.84 - bark * 0.16, 1.28];
-    const p1: Vec3 = [0, -0.90, 1.65 + reach * 0.35];
-    const p2: Vec3 = [0, -1.05 + flick * 0.65, 1.9 + reach * 1.1];
-    const p3: Vec3 = [0, -0.94 + flick * 2.6, 1.9 + reach * 1.65 - flick * 0.25];
+    const pant = Math.sin(this.time * 5) * 0.035 * (1 - reach);
+    const p1: Vec3 = [0, -0.88, 1.42 + reach * 0.58];
+    const p2: Vec3 = [0, -0.99 + pant + flick * 0.65, 1.50 + reach * 1.5];
+    const p3: Vec3 = [0, -1.10 + pant + flick * 2.76, 1.54 + reach * 2.01 - flick * 0.25];
     for (let i = 0; i <= 16; i++) {
       const t = i / 16, s = 1 - t;
       const p = p0.map((_, a) => s ** 3 * p0[a] + 3 * s * s * t * p1[a] + 3 * s * t * t * p2[a] + t ** 3 * p3[a]) as Vec3;
       const tangent = normalize(p0.map((_, a) => 3 * s * s * (p1[a] - p0[a]) + 6 * s * t * (p2[a] - p1[a]) + 3 * t * t * (p3[a] - p2[a])) as Vec3);
       const up: Vec3 = [0, tangent[2], -tangent[1]];
       const frame = mul(head, basis([1, 0, 0], up, tangent, p));
-      shape('sphere', frame, [0, 0, 0], [0.35 - t * 0.05, 0.065, 0.18], PINK);
+      shape('sphere', frame, [0, 0, 0], [(0.24 + reach * 0.11) - t * 0.05, 0.055, 0.055 + reach * 0.125], PINK);
     }
     // Broad teal collar and a brass tag help the reveal read as a pet immediately.
     const collar = mul(root, translation([0, 2.1 - bow + bounce, 1.21]), rotationX(Math.PI / 2));
     shape('cylinder', collar, [0, 0, 0], [1.4, 0.31, 1.25], [0.035, 0.42, 0.42]);
     shape('sphere', root, [0, 1.2 - bow * 0.7 + bounce, 2.01], [0.32, 0.39, 0.1], [1, 0.71, 0.17]);
-    const tail = mul(root, translation([0, 2.25 + bounce, -2.0]), rotationY(wag * (0.65 + this.tailPower * 0.7)), rotationX(-1.1 + light * 0.35));
+    const tail = this.tailFrame(root);
     shape('sphere', tail, [0, 0.15, -0.95], [0.38, 0.42, 1.45], HONEY);
     shape('sphere', tail, [0, 0.15, -2.0], [0.37, 0.4, 0.58], CREAM);
   }

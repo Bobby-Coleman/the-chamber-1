@@ -1,5 +1,5 @@
 import { mul, rotationZ, scaling, translation, type Vec3 } from '../engine/math';
-import type { Physics, RAPIER } from '../engine/physics';
+import { RAPIER, type Physics } from '../engine/physics';
 import { Pattern, type DrawItem } from '../engine/renderer';
 
 const METAL = [0.075, 0.09, 0.105], EDGE = [0.21, 0.24, 0.26], BLACK = [0.003, 0.004, 0.006];
@@ -8,11 +8,12 @@ const METAL = [0.075, 0.09, 0.105], EDGE = [0.21, 0.24, 0.26], BLACK = [0.003, 0
 export class PrisonVault {
   open = 0;
   private gates: RAPIER.Collider[] = [];
+  private solids: RAPIER.Collider[] = [];
   private scenery: DrawItem[] = [];
   constructor(physics: Physics) {
     const box = (p: Vec3, size: Vec3, color: number[], collider = true) => {
       this.scenery.push({ mesh: 'box', model: mul(translation(p), scaling(size)), color });
-      if (collider) physics.addStaticBox(p, size);
+      if (collider) this.solids.push(physics.addStaticBox(p, size));
     };
     box([-7.6, 4.5, -10.1], [1.2, 9, 7.4], METAL);
     box([7.6, 4.5, -10.1], [1.2, 9, 7.4], METAL);
@@ -21,7 +22,6 @@ export class PrisonVault {
     box([0, 8.1, -6.28], [16.1, 1.0, 0.75], EDGE);
     box([-7.9, 4.0, -6.35], [0.48, 8, 0.8], EDGE);
     box([7.9, 4.0, -6.35], [0.48, 8, 0.8], EDGE);
-    box([0, 0.08, -10.1], [14.3, 0.15, 7.5], BLACK, false);
     // Bolted faceplate, inset panels, floor anchors and external hydraulic pistons.
     for (const s of [-1, 1]) {
       box([s * 8.0, 0.22, -5.8], [1.45, 0.44, 1.7], METAL);
@@ -31,6 +31,7 @@ export class PrisonVault {
     for (let x = -6; x <= 6; x += 1.0) this.scenery.push({ mesh: 'box', model: mul(translation([x, 7.72, -5.88]), rotationZ(-0.5), scaling([0.30, 0.38, 0.06])), color: [0.70, 0.43, 0.06] });
     // Four telescoping sections retract sideways into the thick door pockets.
     for (const x of [-5.25, -1.75, 1.75, 5.25]) this.gates.push(physics.addStaticBox([x, 3.8, -6.45], [3.5, 7.6, 0.3]));
+    this.solids.push(...this.gates);
     for (const s of [-1, 1]) box([s * 9.45, 4.0, -6.65], [3.25, 8.0, 0.65], METAL);
   }
 
@@ -42,10 +43,26 @@ export class PrisonVault {
     });
   }
 
+  /** Swept flight against the real doors, roof and walls; an open doorway stays open. */
+  flightImpact(from: Vec3, to: Vec3): { pos: Vec3; normal: Vec3 } | null {
+    const delta = to.map((n, i) => n - from[i]) as Vec3, distance = Math.hypot(...delta);
+    if (distance < 0.0001) return null;
+    const direction = delta.map(n => n / distance) as Vec3;
+    const ray = new RAPIER.Ray({ x: from[0], y: from[1], z: from[2] }, { x: direction[0], y: direction[1], z: direction[2] });
+    let nearest = distance + 0.4, normal: Vec3 | null = null;
+    for (const collider of this.solids) {
+      const hit = collider.castRayAndGetNormal(ray, nearest, true);
+      if (hit && hit.timeOfImpact <= nearest) {
+        nearest = hit.timeOfImpact; normal = [hit.normal.x, hit.normal.y, hit.normal.z];
+      }
+    }
+    return normal ? { pos: from.map((n, i) => n + direction[i] * Math.max(0, nearest - 0.4)) as Vec3, normal } : null;
+  }
+
   draw(out: DrawItem[], time: number) {
     out.push(...this.scenery);
     // Solid darkness conceals the silhouette from every normal viewing angle until release.
-    out.push({ mesh: 'box', model: mul(translation([0, 3.75, -9.9]), scaling([14, 7.45, 0.06])), color: [0, 0, 0], pattern: Pattern.emissive });
+    out.push({ mesh: 'box', model: mul(translation([0, 3.75, -13.45]), scaling([14, 7.45, 0.06])), color: [0, 0, 0], pattern: Pattern.emissive });
     for (const [i, from] of [-5.25, -1.75, 1.75, 5.25].entries()) {
       const x = from + (Math.sign(from) * 9.4 - from) * this.open;
       const z = -6.3 - (i % 2) * 0.2;

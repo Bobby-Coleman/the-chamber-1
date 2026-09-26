@@ -1,16 +1,19 @@
 import { add, approachAngle, clamp, easeInOut, lerp, lerp3, mul, normalize, rotationY, rotationZ, scaling, translation, type Vec3 } from '../../engine/math';
 import { Pattern, type DrawItem, type Environment } from '../../engine/renderer';
+import { RAPIER } from '../../engine/physics';
 import { drawPortal, PORTAL_SQUEEZE_TIME, PortalArrival } from '../../entities/portal';
 import { PrisonVault } from '../../entities/prisonVault';
 import { Button } from '../../entities/props';
 import { Puppy } from '../../entities/puppy';
+import { PuppyContactBody } from '../../entities/puppyContact';
+import { VaultBridge } from '../../entities/vaultBridge';
 import { drawPortalArm, PortalRim } from '../../entities/portalArm';
 import { preparePuppyAudio, puppySound } from '../../entities/puppyAudio';
 import { type CameraShot, type Level, type LevelContext, type LevelStatus, type WorldLabel } from '../level';
-import { FLIGHT_GRAVITY, HOOP_RADIUS, HOOP_Y, HOOP_Z, hoopCrossing, hoopX, inPit, LICK_WINDUP, lickVelocity, PAW_SWEEP_TIME, PAW_WINDUP, pawSweepPoint, PITS, rimImpact } from './mechanics';
+import { FLIGHT_GRAVITY, HOOP_RADIUS, HOOP_Y, HOOP_Z, hoopCrossing, hoopX, inPit, LICK_WINDUP, lickVelocity, PAW_SWEEP_TIME, PAW_WINDUP, pawSweepPoint, PITS, rimImpact, undersideImpact } from './mechanics';
 
 type Phase = 'sealed' | 'opening' | 'reveal' | 'play' | 'escape' | 'dead';
-type Move = 'chase' | 'lick' | 'paw' | 'pounce' | 'tail' | 'recover';
+type Move = 'chase' | 'lick' | 'paw' | 'pounce' | 'recover';
 /** Pressure, dodge, opportunity. Close-range play must not collapse into an endless lick loop. */
 const ATTACK_CYCLE: readonly Move[] = ['pounce', 'paw', 'lick', 'paw', 'pounce', 'lick', 'pounce', 'paw', 'lick'];
 const BUTTON: Vec3 = [9.4, 0, -4.8];
@@ -29,6 +32,11 @@ export class PuppyLevel implements Level {
   private vault: PrisonVault;
   private rim: PortalRim;
   private puppy = new Puppy();
+  private contactBody: PuppyContactBody;
+  private bridge: VaultBridge;
+  private bridgeTime = -1;
+  private physicalPortalSample: { pos: Vec3; time: number } | null = null;
+  private secretFound = false;
   private phase: Phase = 'sealed';
   private phaseTime = 0;
   private time = 0;
@@ -53,7 +61,6 @@ export class PuppyLevel implements Level {
   private flightCamera: CameraShot | null = null;
   private landingCameraTime = 0;
   private highFlight = false;
-  private bodyObstacle = [{ x: 0, z: -10.5, r: 1.85 }];
   private approachTarget: Vec3 = [0, 0, -3.4];
   private approachLook: Vec3 = [0, 0, 0];
   private pawStart: Vec3 = [0, 0, 0];
@@ -71,6 +78,9 @@ export class PuppyLevel implements Level {
     ctx.hud.hint('');
     this.arrival = new PortalArrival(ctx, [0, 0, 6.5]);
     this.vault = new PrisonVault(ctx.physics);
+    this.bridge = new VaultBridge(ctx.physics);
+    this.contactBody = new PuppyContactBody(ctx.physics, this.puppy);
+    ctx.player.recoveryMoveScale = 0.5;
     this.rim = new PortalRim(ctx.physics, [hoopX(0), HOOP_Y, HOOP_Z], HOOP_RADIUS);
     new Button(ctx.physics, BUTTON, [0.87, 0.045, 0.018], () => this.release());
     this.buildRoom();
@@ -103,9 +113,6 @@ export class PuppyLevel implements Level {
         for (let z = -p.depth / 2; z < p.depth / 2; z += 0.42) box([p.x + s * (p.width / 2 + 0.1), 0.054, p.z + z], [0.21, 0.015, 0.15], [0.035, 0.035, 0.035]);
       }
     }
-    // Floor marks offer a natural approach toward the vault without spelling out the puzzle.
-    for (let z = -4; z <= 3; z += 1.2) box([-3.8, 0.014, z], [0.06, 0.025, 0.65], [0.28, 0.31, 0.34]);
-    for (let z = -4; z <= 3; z += 1.2) box([3.8, 0.014, z], [0.06, 0.025, 0.65], [0.28, 0.31, 0.34]);
   }
 
   private release() {
@@ -121,14 +128,26 @@ export class PuppyLevel implements Level {
     this.jumpAge += dt;
     if (input.wasPressed('Space') && player.mode === 'control' && !player.gettingUp && player.stun <= 0 && player.pos[1] < 1.4) this.jumpAge = 0;
     this.immunity = Math.max(0, this.immunity - dt);
+    if (player.gettingUp || player.stun > 0) {
+      this.immunity = Math.max(this.immunity, 0.65);
+      player.knockProtection = Math.max(player.knockProtection, 0.65);
+    }
     this.landingCameraTime = Math.max(0, this.landingCameraTime - dt);
     this.puppy.time = this.time;
     this.puppy.animate(dt);
     if (this.greetingTime >= 0) this.greetingTime += dt;
     this.arrival.update(dt);
+    if (this.bridgeTime >= 0) {
+      this.bridgeTime += dt;
+      if (this.bridge.retraction < 1) this.bridge.update(easeInOut(clamp(this.bridgeTime / 2, 0, 1)));
+    }
     const beforeHoop = this.hoopTime;
+    // Physical motion happened during the previous physics step, before this hoop movement.
+    this.checkPhysicalPortal(beforeHoop);
     if (this.phase !== 'escape') this.hoopTime += dt;
     this.rim.move([hoopX(this.hoopTime), HOOP_Y, HOOP_Z]);
+    const physicalHeight = player.body?.position('pelvis')[1] ?? player.pos[1];
+    this.rim.setUndersideSolid(!player.inPortal && !this.flight && physicalHeight < HOOP_Y - 0.15);
     if (this.phase === 'dead') {
       this.updatePitCamera();
       if (this.phaseTime > 1.2) this.status = 'lost';
@@ -156,6 +175,7 @@ export class PuppyLevel implements Level {
         const k = easeInOut(clamp(this.phaseTime / 4.4, 0, 1));
         this.puppy.pos[2] = lerp(-10.5, -3.4, k);
         this.puppy.pose = this.phaseTime < 4.4 ? 'walk' : 'happy';
+        if (this.phaseTime >= 4.4 && this.bridgeTime < 0) this.bridgeTime = 0;
         // Affection appears as he reaches the light, preserving the ominous closed-vault reveal.
         if (this.greetingTime < 0 && this.phaseTime >= 2.1) this.greetingTime = 0;
         if (this.phaseTime - dt < 2.8 && this.phaseTime >= 2.8) this.ctx.hud.hint('“Oh. A puppy. Aw, that’s not so bad.”');
@@ -164,6 +184,44 @@ export class PuppyLevel implements Level {
       }
       case 'play': this.updateBoss(dt); break;
     }
+    if (this.contactBody.update(this.puppy, player, dt, this.phase === 'play' && !this.flight && this.immunity <= 0)) {
+      this.immunity = 1.2;
+      this.ctx.camera.addShake(0.16);
+    }
+    // The existing exterior landing behind the right side of the cage hides the reward.
+    if (!this.secretFound && player.mode === 'control' && Math.hypot(player.pos[0] - 12.35, player.pos[2] + 12.35) < 0.9 && Math.abs(player.pos[1]) < 1.2) {
+      this.secretFound = true; player.puppyMan = true;
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem('chamber-puppy-man', '1'); } catch { /* Cosmetic still works for this session. */ }
+      this.ctx.hud.show('ONE OF THE PACK', 'Puppy man unlocked.', 2.5);
+    }
+  }
+
+  private overPit(x: number, z: number, inset = 0) {
+    return inPit(x, z, inset) && !this.bridge.supports(x, z);
+  }
+
+  private checkPhysicalPortal(time: number) {
+    const player = this.ctx.player;
+    if (this.phase !== 'play' || this.flight || player.inPortal || !player.body?.isEnabled || !['ragdoll', 'control'].includes(player.mode)) {
+      this.physicalPortalSample = null;
+      return;
+    }
+    const pos = player.body.position('pelvis'), previous = this.physicalPortalSample;
+    if (previous && hoopCrossing(previous.pos, pos, previous.time, time)) this.win();
+    this.physicalPortalSample = { pos: [...pos], time };
+  }
+
+  private win() {
+    const player = this.ctx.player;
+    this.phase = 'escape'; this.phaseTime = 0; this.flight = null; this.tumbling = false;
+    this.pitCamera = null;
+    if (player.body?.isEnabled && (player.mode === 'ragdoll' || player.mode === 'control')) {
+      // Freeze the actual pose so a limp player can be sucked into the portal intact.
+      for (const part of Object.values(player.body.parts)) part.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+      player.mode = 'ragdoll';
+    }
+    player.shrinkInto([hoopX(this.hoopTime), HOOP_Y, HOOP_Z], PORTAL_SQUEEZE_TIME);
+    this.ctx.hud.hint(''); this.ctx.hud.show('FETCH COMPLETE', 'You were the ball.', 1.1);
   }
 
   private setMove(move: Move) {
@@ -188,7 +246,7 @@ export class PuppyLevel implements Level {
     const vy = this.flight?.[1] ?? (this.tumbling ? player.body!.parts.pelvis.linvel().y : player.vel[1]);
     const supported = player.mode === 'control' && player.onGround;
     // Match the landing margin so catching the lip does not count as falling into the shaft.
-    const overPit = inPit(player.pos[0], player.pos[2], 0.1);
+    const overPit = this.overPit(player.pos[0], player.pos[2], 0.1);
     if (this.phase !== 'dead' && (!overPit || feetY >= 0.05 || supported || vy > 0.5)) {
       this.pitCamera = null;
       return;
@@ -238,7 +296,6 @@ export class PuppyLevel implements Level {
       this.pounceStart = [...this.puppy.pos];
     } else if (move === 'paw') {
       this.puppy.pawSide = Math.abs(local.side) > 0.5 ? Math.sign(local.side) : this.attackIndex % 2 === 0 ? 1 : -1;
-      if (local.front < -0.7) move = 'tail';
     }
     this.attackIndex++;
     this.setMove(move);
@@ -259,8 +316,6 @@ export class PuppyLevel implements Level {
         dog.pose = 'walk';
         if (!grounded || this.immunity > 0 || player.gettingUp) { dog.pose = 'happy'; break; }
         const scheduled = ATTACK_CYCLE[this.attackIndex % ATTACK_CYCLE.length];
-        // A rear approach can provoke a sweep, while the overall pattern still advances.
-        if (local.distance < 5.0 && local.front < -0.7 && this.moveTime > 0.6) { this.beginAttack('tail'); break; }
         const dx = this.approachTarget[0] - dog.pos[0], dz = this.approachTarget[2] - dog.pos[2];
         const remaining = Math.hypot(dx, dz);
         if (remaining > 0.20 && this.moveTime < 1.4) {
@@ -310,22 +365,10 @@ export class PuppyLevel implements Level {
             this.attackHit = true;
             const side = -dog.pawSide;
             this.bark();
-            this.launch([f[2] * side * 10 + f[0] * 2, 7, -f[0] * side * 10 + f[2] * 2], false);
+            this.launch([f[2] * side * 11.5 + f[0] * 2.5, 7, -f[0] * side * 11.5 + f[2] * 2.5], false);
           }
         }
         if (this.moveTime > PAW_WINDUP + PAW_SWEEP_TIME + 0.4) { this.recoverTime = 1.6; this.setMove('recover'); }
-        break;
-      }
-      case 'tail': {
-        dog.pose = 'tail'; dog.charge = clamp(this.moveTime / 1.0, 0, 1);
-        if (this.moveTime >= 1.0 && !this.attackHit) {
-          this.attackHit = true;
-          if (grounded && local.front < 0.7 && local.distance < 5.4 && player.pos[1] < 0.65 && this.immunity <= 0) {
-            const f = dog.forward, s = local.side >= 0 ? 1 : -1;
-            this.launch([f[2] * s * 9, 6.5, -f[0] * s * 9], false);
-          }
-        }
-        if (this.moveTime > 1.45) { this.recoverTime = 1.5; this.setMove('recover'); }
         break;
       }
       case 'pounce': {
@@ -350,7 +393,7 @@ export class PuppyLevel implements Level {
           const d = Math.hypot(player.pos[0] - dog.pos[0], player.pos[2] - dog.pos[2]);
           if (grounded && d < 4.3 && player.pos[1] < 1.15 && this.immunity <= 0) {
             const angle = Math.atan2(player.pos[0] - dog.pos[0], player.pos[2] - dog.pos[2]) + (Math.random() - 0.5) * 2.6;
-            const speed = 8.5 + Math.random() * 3;
+            const speed = 10 + Math.random() * 3;
             this.launch([Math.sin(angle) * speed, 8 + Math.random() * 2, Math.cos(angle) * speed], false);
           }
         }
@@ -361,13 +404,6 @@ export class PuppyLevel implements Level {
         dog.pose = 'happy';
         if (this.moveTime > this.recoverTime && !this.flight && !this.tumbling && !player.gettingUp && this.immunity <= 0) this.setMove('chase');
         break;
-    }
-    // A solid body stops the character walking inside the puppy, without invisible launch hits.
-    if (grounded && local.distance < 1.9) {
-      const f = dog.forward;
-      const dx = player.pos[0] - dog.pos[0], dz = player.pos[2] - dog.pos[2], d = Math.hypot(dx, dz);
-      player.pos[0] = dog.pos[0] + (d > 0.01 ? dx / d : f[0]) * 1.9;
-      player.pos[2] = dog.pos[2] + (d > 0.01 ? dz / d : f[2]) * 1.9;
     }
   }
 
@@ -412,21 +448,21 @@ export class PuppyLevel implements Level {
     const spin = Math.max(0, 1 - this.flightTime * 2.5);
     player.flightDir = normalize([v[0] * 0.15 + Math.sin(this.flightTime * 20) * spin, 1, v[2] * 0.12]);
     this.aimFlightCamera(player.pos, v);
+    const undersideHit = undersideImpact(old, player.pos, beforeHoop, this.hoopTime);
     const rimHit = rimImpact(old, player.pos, beforeHoop, this.hoopTime);
-    if (rimHit) {
-      player.pos = rimHit;
-      const dx = rimHit[0] - hoopX(this.hoopTime), dz = rimHit[2] - HOOP_Z;
-      player.startTumble(v, [dz * 2.4, 1.2, -dx * 2.4]);
+    const impact = undersideHit ?? rimHit;
+    if (impact) {
+      player.pos = impact;
+      const dx = impact[0] - hoopX(this.hoopTime), dz = impact[2] - HOOP_Z;
+      player.startTumble(undersideHit ? [v[0] * 0.7, -Math.max(3, v[1] * 0.25), v[2] * 0.7] : v, [dz * 2.4 + 2, 1.2, -dx * 2.4]);
       this.flight = null; this.tumbling = true; this.tumbleTime = 0; this.settledTime = 0;
+      this.physicalPortalSample = { pos: [...player.body!.position('pelvis')], time: this.hoopTime };
       camera.addShake(0.3);
-      this.ctx.hud.hint('Oof. Caught the rim.');
+      this.ctx.hud.hint(undersideHit ? 'Bonk. Wrong side.' : 'Oof. Caught the rim.');
       return;
     }
     if (hoopCrossing(old, player.pos, beforeHoop, this.hoopTime)) {
-      this.phase = 'escape'; this.phaseTime = 0; this.flight = null;
-      player.pos = [hoopX(this.hoopTime), HOOP_Y, HOOP_Z];
-      player.shrinkInto([...player.pos], PORTAL_SQUEEZE_TIME);
-      this.ctx.hud.hint(''); this.ctx.hud.show('FETCH COMPLETE', 'You were the ball.', 1.1);
+      this.win();
       return;
     }
     // Chamber walls and the vault remain solid during scripted flight.
@@ -437,8 +473,18 @@ export class PuppyLevel implements Level {
         v[axis] *= -0.45; camera.addShake(0.25);
       }
     }
-    if (player.pos[2] < -5.6 && player.pos[1] < 9.6) { player.pos[2] = -5.6; v[2] = Math.abs(v[2]) * 0.5; }
-    if (player.pos[1] <= 0.95 && v[1] < 0 && !inPit(player.pos[0], player.pos[2], 0.1)) {
+    const vaultHit = this.vault.flightImpact(old, player.pos);
+    if (vaultHit) {
+      player.pos = vaultHit.pos;
+      const into = Math.min(0, v[0] * vaultHit.normal[0] + v[1] * vaultHit.normal[1] + v[2] * vaultHit.normal[2]);
+      const bounce = v.map((n, i) => (n - vaultHit.normal[i] * into * 1.25) * 0.65) as Vec3;
+      player.startTumble(bounce, [1.5, 0.5, -1]);
+      this.flight = null; this.tumbling = true; this.tumbleTime = 0; this.settledTime = 0;
+      this.physicalPortalSample = { pos: [...player.body!.position('pelvis')], time: this.hoopTime };
+      camera.addShake(0.2);
+      return;
+    }
+    if (player.pos[1] <= 0.95 && v[1] < 0 && !this.overPit(player.pos[0], player.pos[2], 0.1)) {
       const centre: Vec3 = [player.pos[0], 1.0, player.pos[2]];
       this.flight = null; this.flightCamera = null; player.collider?.setEnabled(true);
       this.landingCameraTime = this.highFlight ? 0.8 : 0;
@@ -490,7 +536,7 @@ export class PuppyLevel implements Level {
     this.ctx.hud.tips([
       ['Lick', 'Stand in front of his nose. Jump just as the tongue curls up for a high launch.'],
       ['Escape', 'Look up: land through the moving purple hoop from above. WASD steers in the air.'],
-      ['Paws & pits', 'A raised paw sweeps sideways. A play bow means pounce. Jump over a tail sweep.'],
+      ['Paws & pits', 'A raised paw sweeps sideways. A play bow means pounce. Moving shoulders and wagging tails can knock you over too.'],
     ]);
   }
 
@@ -502,6 +548,7 @@ export class PuppyLevel implements Level {
     // Omit the overhead machine entirely, including its shadow, until play begins.
     out.push(...this.scenery);
     this.vault.draw(out, time);
+    this.bridge.draw(out);
     this.puppy.draw(out);
   }
 
@@ -510,6 +557,11 @@ export class PuppyLevel implements Level {
     this.arrival.draw(out);
     this.drawGreeting(out);
     this.drawHoop(out);
+    if (!this.secretFound) {
+      const y = 0.9 + Math.sin(this.time * 2.5) * 0.1;
+      out.push({ mesh: 'sphere', model: mul(translation([12.35, y, -12.35]), scaling([0.28, 0.34, 0.13])), color: [1, 0.66, 0.12], pattern: Pattern.emissive });
+      for (const s of [-1, 1]) out.push({ mesh: 'sphere', model: mul(translation([12.35 + s * 0.24, y + 0.08, -12.35]), scaling([0.12, 0.25, 0.10])), color: [0.69, 0.36, 0.12] });
+    }
     if (this.phase === 'play') this.drawTells(out);
   }
 
@@ -560,16 +612,12 @@ export class PuppyLevel implements Level {
         out.push({ mesh: 'sphere', model: mul(root, translation([p[0], 0.04, p[2]]), scaling([0.17, 0.025, 0.17])), color: [0.98, 0.42, 0.05], pattern: Pattern.emissive, shadow: false });
       }
     }
-    if (this.move === 'tail' && !this.attackHit) {
-      out.push({ mesh: 'box', model: mul(root, translation([0, 0.04, -2.9]), scaling([5, 0.035, 0.7])), color: [0.98, 0.42, 0.05], pattern: Pattern.emissive, shadow: false });
-    }
   }
 
   environment() { return ENV; }
   obstacles() {
-    if (this.ctx.player.pos[1] > 3.8 || this.puppy.airborne > 1.5) return [];
-    this.bodyObstacle[0].x = this.puppy.pos[0]; this.bodyObstacle[0].z = this.puppy.pos[2];
-    return this.bodyObstacle;
+    // The animated physics shapes now supply the solid outline.
+    return [];
   }
   labels(): WorldLabel[] {
     return [];

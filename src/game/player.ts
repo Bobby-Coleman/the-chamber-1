@@ -130,6 +130,10 @@ export class Player {
   stun = 0;
   /** True from a knock until the body is back on its feet. */
   gettingUp = false;
+  /** Optional level tuning; other chambers retain their original recovery movement. */
+  recoveryMoveScale = GETUP_MOVE_SCALE;
+  knockProtection = 0;
+  puppyMan = false;
   private getUpTime = 0;
   private knockGrace = 0;
   private physics: Physics | null = null;
@@ -166,6 +170,10 @@ export class Player {
   private portalT = 0;
   private portalTime = 0;
 
+  constructor() {
+    try { this.puppyMan = typeof localStorage !== 'undefined' && localStorage.getItem('chamber-puppy-man') === '1'; } catch { /* Storage is optional. */ }
+  }
+
   reset(pos: Vec3, facing = 0) {
     this.pos = [...pos];
     this.vel = [0, 0, 0];
@@ -177,6 +185,8 @@ export class Player {
     this.onGround = true;
     this.stun = 0;
     this.gettingUp = false;
+    this.recoveryMoveScale = GETUP_MOVE_SCALE;
+    this.knockProtection = 0;
     this.knockGrace = 0;
     this.pose = REST_POSE;
     this.portalScale = this.portalFrom = this.portalTo = 1;
@@ -254,6 +264,7 @@ export class Player {
     const stunned = this.stun > 0;
     this.stun = Math.max(0, this.stun - dt);
     this.knockGrace = Math.max(0, this.knockGrace - dt);
+    this.knockProtection = Math.max(0, this.knockProtection - dt);
     if (this.body && this.stun <= 0 && this.body.muscle < 1) {
       this.body.muscle = Math.min(1, this.body.muscle + dt / RECOVER_TIME);
     }
@@ -280,7 +291,9 @@ export class Player {
     if (len > 0) { mx /= len; mz /= len; }
 
     const sprint = input.isDown('ShiftLeft') || input.isDown('ShiftRight');
-    const speed = (sprint ? SPRINT_SPEED : WALK_SPEED) * (this.gettingUp ? GETUP_MOVE_SCALE : 1) * this.speedScale;
+    const activeRecovery = this.gettingUp && this.recoveryMoveScale > GETUP_MOVE_SCALE;
+    const recoverySpeed = this.gettingUp ? this.recoveryMoveScale * (activeRecovery ? 0.65 + 0.35 * Math.min(1, this.getUpTime) : 1) : 1;
+    const speed = (sprint && !activeRecovery ? SPRINT_SPEED : WALK_SPEED) * recoverySpeed * this.speedScale;
     const accel = (this.onGround ? GROUND_ACCEL : AIR_ACCEL) * this.speedScale;
     const k = 1 - Math.exp(-dt * (stunned ? 3 : accel));
     this.vel[0] += (mx * speed - this.vel[0]) * k;
@@ -549,7 +562,7 @@ export class Player {
    * `velocity` (m/s), then the player pulls themselves together.
    */
   knock(velocity: Vec3, stunSeconds: number) {
-    if (this.mode !== 'control' || !this.body || this.inPortal) return;
+    if (this.mode !== 'control' || !this.body || this.inPortal || this.knockProtection > 0) return;
     this.body.muscle = STUNNED_MUSCLE;
     this.stun = stunSeconds;
     this.gettingUp = true;
@@ -690,9 +703,9 @@ export class Player {
     const start = out.length;
     const body = this.body;
     if (body && body.isEnabled && (this.mode === 'control' || this.mode === 'ragdoll')) {
-      drawBody(out, body.frames(), this.girth);
+      drawBody(out, body.frames(), this.girth, this.puppyMan);
     } else {
-      drawBody(out, poseFrames(this.scriptedRoot(), this.pose), this.girth);
+      drawBody(out, poseFrames(this.scriptedRoot(), this.pose), this.girth, this.puppyMan);
     }
     // Going through a portal: squeeze everything toward the portal's centre.
     if (this.portalScale < 0.999) {
