@@ -10,7 +10,7 @@ export function bearQa(ctx:LevelContext, level:()=>BearLevel, restart:()=>void,t
   const btn=(name:string,fn:()=>void)=>{actions.set(name,fn);const b=document.createElement('button');b.textContent=name;b.style.cssText='padding:7px;margin:3px';b.onclick=()=>{fn();draw();const l=level() as any;info.textContent=JSON.stringify({stage:l.stage,phase:l.phase,room:l.room,pos:ctx.player.pos,gun:l.gunTime,tiny:l.tinyOpen});};panel.append(b);};
   btn('Start',()=>{resetBearStory();restart();step(5);place([0,0,5]);});
   btn('Entrance tree',()=>{place([-0.7,0,5.8],-0.3);ctx.camera.pitch=-0.22;step(.2);});
-  btn('Beaver',()=>{place([0.5,0,4.5],-0.65);ctx.camera.pitch=-0.35;step(.2);});
+  btn('Beaver',()=>{place([3,0,4.6],0.45);ctx.camera.pitch=-0.35;step(.2);});
   btn('Forest',()=>{place([-3.5,0,-7]);step(0.35);});
   btn('Chase',()=>{place([3,0,-24]);step(1.4);});
   btn('Patrol',()=>{place([0,0,-10]);step(4);});
@@ -24,6 +24,7 @@ export function bearQa(ctx:LevelContext, level:()=>BearLevel, restart:()=>void,t
   btn('Pit',()=>{actions.get('Return gap')?.();place([-49,0,-23],-Math.PI/2);ctx.camera.pitch=-0.65;step(0.1);});
   btn('Signs',()=>{actions.get('Doors')?.();place([-47,0,-23],Math.PI/2);});
   btn('Bear',()=>{(level() as any).setPhase('chase');place([-60,0,-27],Math.PI/2);place([-63,0,-29],Math.PI/2);step(0.25);});
+  btn('Room bear',()=>{(level() as any).setPhase('chase');place([-60,0,-27],Math.PI/2);place([-65,0,-33.5],2.4);});
   btn('Teddy front',()=>{place([-62,0,-29],Math.PI/2);});
   btn('Behind teddy',()=>{place([-74,0,-32],0);});
   btn('Exit',()=>{place([-76.5,0,-29],Math.PI/2);step(1);});

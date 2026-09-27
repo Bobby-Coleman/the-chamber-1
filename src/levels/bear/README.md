@@ -6,8 +6,8 @@ Standalone level using the existing player, ragdoll physics, renderer and portal
 - Pursuit speed changes smoothly to gain and lose ground during a sprint; stopping lets the bear close in. Movement checks prevent the bear from passing through walls and trees.
 - Narrow doorways and entry screens conceal both encounters from the chase hall. Entering either room removes the chasing bear and drops an eight-metre section of the hallway floor behind the choice area. The pit has a clearly visible bed of metal spikes. Ten metres of solid hallway remain in front of the doors, so both rooms can easily be visited.
 - Visit 1: harmless talking man; the bigger bear causes a visible maul and retry.
-- Visit 2: cowboy greets the player, visibly raises his gun and shoots when they try to leave; the bigger bear remains dangerous. Oversized neon signs with marquee bulbs read A COWBOY MAN and AN EVEN WAY BIGGER BEAR.
-- The entrance tree stands on visit 1, lies fallen beside the trail on visit 2, and has a deep exposed-wood chew notch with an animated beaver and wood chips on visit 3.
+- Visit 2: cowboy greets the player, visibly raises his gun and shoots when they try to leave; the room bear is over 70% larger than on visit 1 and remains dangerous. Oversized neon signs with marquee bulbs read A COWBOY MAN and AN EVEN WAY BIGGER BEAR.
+- The entrance tree stands on visit 1, lies across the trail with its full pine crown on visit 2 (walk around the left tip), and has a deep exposed-wood chew notch with an animated beaver and wood chips on visit 3.
 - Visit 3: signs read A TINY MAN and A SUPER MEGA GIANT BEAR; tiny man opens an unusably small portal; walk around the giant teddy to find the real exit.
 - Choice-room deaths advance the visit; chase deaths retry the same visit. R retains the current visit. Reloading or starting from the lobby begins a fresh story.
 - Death remains visible for 3.8 seconds before automatic restart.

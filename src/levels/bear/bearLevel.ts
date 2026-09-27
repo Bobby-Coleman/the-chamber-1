@@ -64,7 +64,7 @@ export class BearLevel implements Level {
     this.arrival = new PortalArrival(ctx,[0,0,6]);
     this.buildRoom();
     this.pursuer = new Bear(ctx.physics,[...PATROL_ROUTE[0]],0.82);
-    this.bigger = new Bear(ctx.physics,[-69,0,-29], this.stage===2 ? 1.15 : 1.45, this.stage===2);
+    this.bigger = new Bear(ctx.physics,[-69,0,-29], this.stage===2 ? 1.15 : this.stage===1 ? 2.5 : 1.45, this.stage===2);
     this.bigger.yaw = Math.PI/2;
     const scale = this.stage===2 ? 0.24 : 1;
     this.manCollider = ctx.physics.addStaticCylinder([MAN[0],0.9*scale,MAN[2]],0.35*scale,1.8*scale);
@@ -119,7 +119,10 @@ export class BearLevel implements Level {
   }
   private buildForest() {
     if(this.stage===0)this.ctx.physics.addStaticCylinder([4.5,3.4,1.8],0.48,6.8);
-    else this.ctx.physics.addStaticBox([3.4,0.65,1.8],[5.4,1.3,1]);
+    else {
+      this.ctx.physics.addStaticBox([1.1,0.65,1.8],[6.8,1.3,1]);
+      this.ctx.physics.addStaticBox([-1.5,0.65,1.8],[5.6,1.3,3.2]);
+    }
     this.box([0,0.012,-11],[18,0.024,34],[0.19,0.16,0.10]);
     // Boulders close off both wall-hugging shortcuts and funnel the player between tree clusters.
     for(const side of [-1,1])for(let i=0;i<12;i++) {
@@ -263,7 +266,7 @@ export class BearLevel implements Level {
         }
         if(this.stage<2 && this.room==='bear' && p[0]<-62.4) {
           this.moveBear(this.bigger,[clamp(p[0],-75,-61),0,clamp(p[2],-33.5,-25.5)],5.8,dt);
-          if(Math.hypot(p[0]-this.bigger.pos[0],p[2]-this.bigger.pos[2])<3.8 && p[1]<4) this.maul(this.bigger);
+          if(Math.hypot(p[0]-this.bigger.pos[0],p[2]-this.bigger.pos[2])<3.8*(this.bigger.size/1.45) && p[1]<4) this.maul(this.bigger);
         } else this.bigger.moving=false;
         if(this.stage===2 && this.tinyTime>=0) {
           this.tinyTime+=dt;
@@ -282,7 +285,7 @@ export class BearLevel implements Level {
         this.attackTime+=dt;
         if(this.attackTime>0.32 && this.attacker) {
           const d=Math.hypot(p[0]-this.attacker.pos[0],p[2]-this.attacker.pos[2]);
-          if(d<(this.attacker===this.bigger?4.3:2.6)) this.die(this.attacker===this.bigger);
+          if(d<(this.attacker===this.bigger?4.3*(this.bigger.size/1.45):2.6)) this.die(this.attacker===this.bigger);
           else {this.attackTime=-1;this.attacker=null;}
         }
       }

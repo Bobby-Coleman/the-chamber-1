@@ -92,10 +92,16 @@ try {
    if(stage)f=fixture(false);
    assert.equal(f.level.stage,stage);f.physics.step(.02);
    assert.equal(!!f.physics.raycast([2,2,1.8],[0,-1,0],1.5),stage>0);
-   f.place([0,0,5]);for(const [x,z] of [[-3.5,-4],[-3.5,-7],[0,-10],[0,-16],[3,-22],[3,-24]])walk(f,x,z,false);
+   if(stage>0){f.place([0,0,5]);for(const [x,z] of [[-5.2,4.5],[-5.2,-1]])walk(f,x,z,false);}
+   if(stage===0)f.place([0,0,5]);for(const [x,z] of [[-3.5,-4],[-3.5,-7],[0,-10],[0,-16],[3,-22],[3,-24]])walk(f,x,z,false);
    if(stage===2){f.place([-50,0,-23]);assert.deepEqual(f.level.labels().map(l=>l.text.replace(/\s+/g,' ')),['A TINY MAN','A SUPER MEGA GIANT BEAR']);}
    f.level.die(true);
   }
+ });
+ test('second-run room bear is substantially larger and still mauls the player',()=>{
+  const first=fixture();const size=first.level.bigger.size;first.level.die(true);
+  const f=fixture(false);assert.ok(f.level.bigger.size>size*1.7);f.choice();f.place([-65,0,-29]);f.step(1.7);
+  assert.equal(f.level.phase,'dead');assert.equal(f.player.mode,'ragdoll');
  });
  test('selector handles 100, backspace, zero and unavailable numbers',()=>{const a=new LevelNumberEntry(100);for(const n of [1,0,0])a.digit(n);assert.equal(a.confirm(),100);a.clear();a.digit(0);assert.equal(a.confirm(),null);a.digit(9);a.digit(9);a.digit(9);assert.equal(a.confirm(),null);a.digit(1);a.digit(2);a.backspace();assert.equal(a.confirm(),1);});
  test('lever animates, rejects launch during spin, then selects an existing level',()=>{const f=fixture();let chosen=0;const m=new CasinoSelector(f,5,1,n=>chosen=n);m.spin();m.confirm();assert.equal(chosen,0);for(let i=0;i<180;i++)m.update(1/60);assert.equal(m.spinTime,-1);assert.ok(m.entry.selected>=1&&m.entry.selected<=5);m.confirm();assert.equal(chosen,m.entry.selected);});
