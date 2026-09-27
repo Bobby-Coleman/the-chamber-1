@@ -24,7 +24,8 @@ try {
  test('woodland approach triggers notice before chase',()=>{const f=fixture();f.place([3,0,-24]);f.step(.1);assert.equal(f.level.phase,'notice');f.step(1.3);assert.equal(f.level.phase,'chase');});
  test('ordinary man speaks and permits leaving alive',()=>{const f=fixture();f.choice();f.place([-66,0,-17]);f.pressed.add('KeyE');f.step(.1);assert.match(f.hint,/“/);f.place([-59,0,-19]);f.step(2);assert.equal(f.level.phase,'choice');assert.equal(f.player.mode,'control');});
  test('bear-room maul produces a physical ragdoll and delayed retry',()=>{const f=fixture();f.choice();f.place([-65,0,-29]);f.step(1.7);assert.equal(f.level.phase,'dead');assert.equal(f.player.mode,'ragdoll');assert.equal(f.level.restartRequested,false);f.step(4);assert.equal(f.level.restartRequested,true);});
- test('second attempt is cowboy; greeting does not shoot on entry',()=>{const f=fixture(false);assert.equal(f.level.stage,1);f.choice();f.place([-65,0,-17]);f.step(2);assert.equal(f.level.phase,'choice');assert.equal(f.level.gunTime,-1);assert.equal(f.level.greeted,true);f.place([-63.6,0,-17]);f.step(1);assert.equal(f.level.phase,'dead');assert.equal(f.player.mode,'ragdoll');});
+ test('second attempt is cowboy; greeting does not shoot on entry',()=>{const f=fixture(false);assert.equal(f.level.stage,1);f.choice();f.place([-65,0,-17]);f.step(2);assert.equal(f.level.phase,'choice');assert.equal(f.level.gunTime,-1);assert.equal(f.level.greeted,true);f.place([-63.6,0,-17]);f.step(.4);assert.ok(f.level.gunTime>0);assert.equal(f.level.phase,'choice');f.step(.7);assert.equal(f.level.phase,'dead');assert.equal(f.player.mode,'ragdoll');});
+ test('second-visit sign promises an even way bigger bear',()=>{const f=fixture();f.level.die(true);const second=fixture(false);second.place([-50,0,-23]);assert.equal(second.level.labels()[1].text,'AN EVEN WAY BIGGER BEAR');second.level.die(true);});
  test('third visit tiny man runs to a non-winning tiny portal',()=>{const f=fixture(false);assert.equal(f.level.stage,2);f.choice();f.place([-66,0,-17]);f.pressed.add('KeyE');f.step(8);assert.equal(f.level.tinyOpen,true);assert.ok(f.level.manPos[2]>-12);f.place([-73,0,-11]);f.step(1);assert.equal(f.level.status,'playing');assert.equal(f.level.phase,'choice');});
  test('teddy hides a reachable real exit and winning resets story',()=>{const f=fixture(false);f.choice();assert.equal(f.level.bigger.teddy,true);f.place([-76.5,0,-29]);f.step(1);assert.equal(f.level.status,'exited');assert.equal(fixture(false).level.stage,0);});
  test('opening chase deaths do not skip story visits',()=>{const f=fixture();f.level.attacker=f.level.pursuer;f.level.die(false);assert.equal(fixture(false).level.stage,0);});
@@ -52,10 +53,10 @@ try {
  test('stopping to read the final signs lets the bear catch and maul the player',()=>{
   const f=fixture();f.place([3,0,-24]);f.step(.05);
   for(const target of CHASE_ROUTE.slice(1,-1))walk(f,target[0],target[2]);walk(f,-28,-23);
-  assert.ok(f.level.labels().length>=2);f.down.clear();f.step(2);assert.equal(f.level.phase,'dead');
+  assert.equal(f.level.labels().length,2);f.down.clear();f.step(2);assert.equal(f.level.phase,'dead');
  });
  test('signs stay hidden before the last bend and pace alternates between gaining and dropping back',()=>{
-  const f=fixture();f.place([-23,0,-35]);assert.equal(f.level.labels().length,0);f.place([-25,0,-23]);assert.ok(f.level.labels().length>=2);
+  const f=fixture();f.place([-23,0,-35]);assert.equal(f.level.labels().length,0);f.place([-25,0,-23]);assert.equal(f.level.labels().length,2);
   const speeds=Array.from({length:60},(_,i)=>pursuitSpeed(6.8,i/10,true,false));assert.ok(Math.min(...speeds)<8.5);assert.ok(Math.max(...speeds)>8.5);assert.equal(pursuitSpeed(3,0,false,true),8.8);
  });
  test('final room can be walked around its entry screen and teddy to the real exit',()=>{
@@ -69,6 +70,21 @@ try {
    const delta=target.map((n,i)=>n-start[i]),distance=Math.hypot(...delta);const hit=f.physics.raycast(start,delta.map(n=>n/distance),distance-1);
    assert.ok(hit,`revealed from ${start} to ${target}`);
   }
+ });
+ test('room entry removes the chasing bear and opens only the return gap, leaving the junction connected',()=>{
+  const f=fixture();f.physics.step(.02);assert.ok(f.physics.raycast([-44,1,-23],[0,-1,0],2));
+  f.choice();f.physics.step(.02);assert.equal(f.level.pursuer.body.isEnabled(),false);assert.equal(f.level.returnGapOpen,true);
+  assert.equal(f.physics.raycast([-44,1,-23],[0,-1,0],3),null);
+  assert.ok(f.physics.raycast([-55.5,1,-23],[0,-1,0],2));
+  assert.equal(f.physics.raycast([-55,2,-23],[1,0,0],10),null,'no shutter or invisible wall');
+  f.place([-56,0,-19]);walk(f,-56,-27,false);assert.equal(f.level.phase,'choice');
+  f.place([-44,-3.8,-23]);f.step(.05);assert.equal(f.level.phase,'dead');
+ });
+ test('sprinting away from the cowboy shows the draw then kills before the entry screen',()=>{
+  const first=fixture();first.level.die(true);const f=fixture(false);f.choice();f.place([-66,0,-17]);f.step(.2);
+  f.camera.yaw=-Math.PI/2;f.down.add('KeyW');f.down.add('ShiftLeft');f.step(.5);
+  assert.ok(f.level.gunTime>0);assert.equal(f.level.phase,'choice');assert.ok(f.player.pos[0]<-64);
+  f.step(1);assert.equal(f.level.phase,'dead');assert.equal(f.player.mode,'ragdoll');
  });
  test('selector handles 100, backspace, zero and unavailable numbers',()=>{const a=new LevelNumberEntry(100);for(const n of [1,0,0])a.digit(n);assert.equal(a.confirm(),100);a.clear();a.digit(0);assert.equal(a.confirm(),null);a.digit(9);a.digit(9);a.digit(9);assert.equal(a.confirm(),null);a.digit(1);a.digit(2);a.backspace();assert.equal(a.confirm(),1);});
  test('lever animates, rejects launch during spin, then selects an existing level',()=>{const f=fixture();let chosen=0;const m=new CasinoSelector(f,5,1,n=>chosen=n);m.spin();m.confirm();assert.equal(chosen,0);for(let i=0;i<180;i++)m.update(1/60);assert.equal(m.spinTime,-1);assert.ok(m.entry.selected>=1&&m.entry.selected<=5);m.confirm();assert.equal(chosen,m.entry.selected);});

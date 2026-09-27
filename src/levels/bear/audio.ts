@@ -44,6 +44,7 @@ export class BearAudio {
     source.connect(filter); filter.connect(gain); gain.connect(ctx.destination); source.start();
     source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
   }
+  stopBear() {this.wildlife?.pause();this.wildlife=null;}
   stop() { this.voice?.pause(); this.voice = null; }
   dispose() { this.stop();this.wildlife?.pause();this.wildlife=null; void this.ctx?.close().catch(() => {}); this.ctx = null; }
 }

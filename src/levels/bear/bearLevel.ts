@@ -1,4 +1,4 @@
-import { approachAngle, clamp, mul, rotationY, rotationZ, scaling, translation, type Vec3 } from '../../engine/math';
+import { approachAngle, clamp, mul, rotationX, rotationY, rotationZ, scaling, translation, type Vec3 } from '../../engine/math';
 import { Pattern, type DrawItem } from '../../engine/renderer';
 import { GROUPS_QUERY_WORLD, RAPIER } from '../../engine/physics';
 import { drawBody, poseFrames, REST_POSE } from '../../game/body';
@@ -30,16 +30,18 @@ export class BearLevel implements Level {
   private walls: {p:Vec3;s:Vec3}[] = [];
   private pursuer: Bear;
   private bigger: Bear;
-  private shutter: RAPIER.Collider;
+  private bridgeFloor!: RAPIER.Collider;
+  private gapTime=0;
   private phase: Phase = 'approach';
   private clock = 0;
   private phaseTime = 0;
-  private sealed = false;
+  private returnGapOpen = false;
   private room: 'man' | 'bear' | null = null;
   private manPos: Vec3 = [...MAN];
   private manCollider: RAPIER.Collider;
   private greeted = false;
   private gunTime = -1;
+  private closestManDistance = Infinity;
   private tinyTime = -1;
   private tinyOpen = false;
   private saidWelcome = false;
@@ -65,7 +67,6 @@ export class BearLevel implements Level {
     this.bigger.yaw = Math.PI/2;
     const scale = this.stage===2 ? 0.24 : 1;
     this.manCollider = ctx.physics.addStaticCylinder([MAN[0],0.9*scale,MAN[2]],0.35*scale,1.8*scale);
-    this.shutter = ctx.physics.addStaticBox([-54,13,-23],[0.5,10,14]);
   }
   dispose() { this.audio.dispose(); }
   private box(p:Vec3,s:Vec3,color:number[],solid=false,pattern:number=Pattern.plain) {
@@ -77,7 +78,15 @@ export class BearLevel implements Level {
     const slab=(p:Vec3,s:Vec3)=>this.box(p,s,floor,true,Pattern.panels);
     slab([0,-0.25,-10],[18,0.5,40]);
     slab([0,-0.25,-43],[8,0.5,26]); slab([-9.5,-0.25,-56],[27,0.5,8]);
-    slab([-23,-0.25,-37.5],[8,0.5,37]); slab([-38.5,-0.25,-23],[39,0.5,14]);
+    slab([-23,-0.25,-37.5],[8,0.5,37]); slab([-29.5,-0.25,-23],[21,0.5,14]);slab([-53,-0.25,-23],[10,0.5,14]);
+    this.bridgeFloor=this.ctx.physics.addStaticBox([-44,-0.25,-23],[8,0.5,14]);
+    // The bridge is part of the normal floor until either choice-room threshold is crossed.
+    for(const x of [-48.25,-39.75])this.box([x,-3,-23],[0.5,6,14],[0.20,0.23,0.23],true,Pattern.panels);
+    for(const z of [-30.25,-15.75])this.box([-44,-3,z],[8,6,0.5],[0.20,0.23,0.23],true,Pattern.panels);
+    this.box([-44,-6.25,-23],[8,0.5,14],[0.12,0.14,0.15],true);
+    for(let x=-47.4;x<-40;x+=1.2)for(let z=-29.4;z<-16;z+=1.2) {
+      this.scenery.push({mesh:'cone',model:mul(translation([x,-4.8,z]),scaling([0.42,2.4,0.42])),color:[0.68,0.72,0.75]});
+    }
     slab([-68,-0.25,-23],[20,0.5,26]);
     const w=(x:number,z:number,sx:number,sz:number)=>this.box([x,4.5,z],[sx,9,sz],wall,true,Pattern.panels);
     w(9.5,-10,1,42); w(0,10.5,20,1); w(-9.5,-10,1,40);
@@ -92,14 +101,14 @@ export class BearLevel implements Level {
     for(const z of [-27,-19]) {
       this.box([-58,5.9,z],[0.8,6.2,2.2],wall,true,Pattern.panels);
       this.box([-61.8,2.8,z],[0.6,5.6,4.8],wall,true,Pattern.panels);
-      this.box([-57.52,4.35,z],[0.16,1.1,6.6],[0.055,0.065,0.063]);
+      this.box([-57.52,4.35,z],[0.16,this.stage===1?1.65:1.1,this.stage===1?7.6:6.6],[0.025,0.03,0.035]);
+      if(this.stage===1) {
+        const neon=z===-19?[0.05,1,1]:[1,0.08,0.62];
+        for(const y of [3.6,5.1])this.box([-57.38,y,z],[0.12,0.07,7.5],neon,false,Pattern.emissive);
+        for(const side of [-1,1])this.box([-57.38,4.35,z+side*3.75],[0.12,1.5,0.07],neon,false,Pattern.emissive);
+        for(let n=0;n<13;n++)for(const y of [3.38,5.32])this.scenery.push({mesh:'sphere',model:mul(translation([-57.35,y,z-3.5+n*7/12]),scaling([0.11,0.11,0.11])),color:[1,0.72,0.2],pattern:Pattern.emissive});
+      }
       for(const s of [-1,1]) this.box([-57.5,1.4,z+s*1.1],[0.18,2.8,0.12],[0.63,0.74,0.63],false,Pattern.emissive);
-    }
-    // Repeat the door names overhead at the start of the long final straight, readable at a sprint.
-    this.box([-36,7.1,-23],[0.22,0.2,14],[0.21,0.24,0.23]);
-    for(const z of [-19,-27]) {
-      this.box([-36,5.5,z],[0.18,1.2,6.6],[0.055,0.065,0.063]);
-      this.box([-36,6.5,z],[0.12,1,0.12],[0.32,0.35,0.32]);
     }
     this.buildForest();
     // Sparse amber guidance on the outside of each turn; no sign spoilers before the last corner.
@@ -207,6 +216,7 @@ export class BearLevel implements Level {
     } else if(this.phase==='exit') {
       if(this.phaseTime>0.8) {this.status='exited';visit=0;}
     } else if(this.arrival.done) {
+      if(this.returnGapOpen && p[1]<-3.6) {this.attacker=null;this.die(false);return;}
       if(this.phase==='approach') {
         this.patrol(dt);
         if(p[2]<-5)this.forestTime+=dt;
@@ -220,7 +230,8 @@ export class BearLevel implements Level {
       if(this.phase==='chase') {
         this.pursue(dt);
         if(p[0]<-58.5 && p[2]>-30 && p[2]<-16) {
-          this.setPhase('choice');this.sealed=true;this.shutter.setTranslation({x:-54,y:4.5,z:-23});
+          this.setPhase('choice');this.returnGapOpen=true;this.bridgeFloor.setEnabled(false);
+          this.pursuer.body.setEnabled(false);this.audio.stopBear();
           this.pursuer.moving=false;this.attackTime=-1;this.attacker=null;this.ctx.hud.hint('');
         }
       }
@@ -234,16 +245,17 @@ export class BearLevel implements Level {
             if(this.ctx.input.wasPressed('KeyE')) this.talk();
           } else if(this.clock>this.talkUntil) this.ctx.hud.hint('');
         }
-        // The cowboy greets first; approaching the doorway to leave triggers a visible draw.
-        if(this.stage===1 && this.greeted && this.gunTime<0 && p[0]>-64.2 && p[2]>-23) {this.gunTime=0;this.say('leaving');}
+        // Catch the first step away, before the entrance screen can hide the draw.
+        if(this.stage===1 && this.greeted && this.gunTime<0 && this.room==='man') {
+          const dx=p[0]-this.manPos[0],dz=p[2]-this.manPos[2],d=Math.hypot(dx,dz);
+          this.closestManDistance=Math.min(this.closestManDistance,d);
+          const leaving=d>this.closestManDistance+0.45 || p[0]>-64.2;
+          const wall=this.ctx.physics.raycast([this.manPos[0],1.35,this.manPos[2]],[dx/d,0,dz/d],d,this.manCollider);
+          if(leaving&&!wall) {this.gunTime=0;this.say('leaving');player.vel[0]=player.vel[2]=0;player.speedScale=0.001;}
+        }
         if(this.gunTime>=0) {
           this.gunTime+=dt;
-          // Only shoot with clear sight: escaping the doorway before the draw can evade him.
-          if(this.gunTime>0.65 && this.room==='man') {
-            const dx=p[0]-this.manPos[0],dz=p[2]-this.manPos[2],d=Math.hypot(dx,dz);
-            const wall=this.ctx.physics.raycast([this.manPos[0],1.35,this.manPos[2]],[dx/d,0,dz/d],d,this.manCollider);
-            if(!wall) {this.flash=0.12;this.die(true,true);}
-          }
+          if(this.gunTime>0.95) {this.flash=0.18;player.speedScale=1;this.die(true,true);}
         }
         if(this.stage<2 && this.room==='bear' && p[0]<-62.4) {
           this.moveBear(this.bigger,[clamp(p[0],-75,-61),0,clamp(p[2],-33.5,-25.5)],5.8,dt);
@@ -272,22 +284,25 @@ export class BearLevel implements Level {
       }
     }
     if((this.phase==='approach'||this.phase==='chase')&&this.clock>this.nextGrowl){this.nextGrowl=this.clock+(this.phase==='chase'?4.8:8);this.audio.effect(this.phase==='chase'?'roar':'growl');}
-    this.pursuer.update(dt);this.bigger.update(dt);
+    if(this.returnGapOpen)this.gapTime+=dt;else this.pursuer.update(dt);
+    this.bigger.update(dt);
     if((this.pursuer.moving||this.bigger.moving) && this.clock-this.lastStep>0.32) {this.lastStep=this.clock;this.audio.effect('step');}
   }
   draw(out:DrawItem[],time:number) {
-    out.push(...this.scenery);this.arrival.draw(out);this.pursuer.draw(out,time);this.bigger.draw(out,time);
-    if(this.sealed) out.push({mesh:'box',model:mul(translation([-54,4.5,-23]),scaling([0.5,9,14])),color:[0.18,0.22,0.20],pattern:Pattern.panels,param:1});
+    out.push(...this.scenery);this.arrival.draw(out);if(!this.returnGapOpen)this.pursuer.draw(out,time);this.bigger.draw(out,time);
+    this.drawBridge(out);
     const s=this.stage===2?0.24:1, p=this.ctx.player.pos;
     const running=this.stage===2&&this.tinyTime>2.4&&!this.tinyOpen;
     const yaw=running?Math.atan2(this.manPos[0]-TINY_EXIT[0],this.manPos[2]-TINY_EXIT[2]):Math.atan2(this.manPos[0]-p[0],this.manPos[2]-p[2]);
     const root=mul(translation(this.manPos),rotationY(yaw),scaling([s,s,s]));
     const stride=running?Math.sin(time*20)*0.65:0;
-    const frames=poseFrames(root,{...REST_POSE,hipL:stride,hipR:-stride,shoulderL:-stride,shoulderR:this.gunTime>=0?1.4:stride,elbowR:this.gunTime>=0?0.1:0.15,headPitch:Math.sin(time*2)*0.025});
+    const drawAmount=this.gunTime<0?0:clamp(this.gunTime/0.6,0,1);
+    const frames=poseFrames(root,{...REST_POSE,hipL:stride,hipR:-stride,shoulderL:-stride,shoulderR:drawAmount*1.47+(1-drawAmount)*stride,elbowR:0.15-drawAmount*0.05,headPitch:Math.sin(time*2)*0.025});
     drawBody(out,frames);
     if(this.stage===1) {
       for(const [y,sc] of [[0.2,[0.43,0.055,0.36]],[0.34,[0.26,0.22,0.22]]] as [number,Vec3][]) out.push({mesh:'cylinder',model:mul(frames.head,translation([0,y,0]),scaling(sc)),color:[0.30,0.16,0.075]});
-      const gun=mul(frames.foreArmR,translation([0,-0.18,-0.18]));
+      const gun=mul(frames.foreArmR,translation([0,-0.2,0]),rotationX(-Math.PI/2));
+      out.push({mesh:'box',model:mul(gun,translation([0,-0.09,0.04]),scaling([0.10,0.22,0.12])),color:[0.24,0.12,0.055]});
       out.push({mesh:'box',model:mul(gun,scaling([0.09,0.14,0.38])),color:[0.09,0.095,0.10]});
       if(this.flash>0) out.push({mesh:'sphere',model:mul(gun,translation([0,0,-0.3]),scaling([0.2,0.2,0.4])),color:[1,0.65,0.15],pattern:Pattern.emissive});
     }
@@ -296,23 +311,25 @@ export class BearLevel implements Level {
       if(this.tinyOpen) drawPortal(out,TINY_EXIT,[0,0,-1],0.22,true);
     }
   }
-  drawPreview(out:DrawItem[],time:number) {out.push(...this.scenery);this.pursuer.draw(out,time);}
+  private drawBridge(out:DrawItem[]) {
+    const drop=this.returnGapOpen?Math.min(6.5,this.gapTime*this.gapTime*12):0;
+    out.push({mesh:'box',model:mul(translation([-44,-0.25-drop,-23]),scaling([8,0.5,14])),color:[0.48,0.52,0.51],pattern:Pattern.panels,param:2});
+    if(this.returnGapOpen)for(const x of [-48,-40])out.push({mesh:'box',model:mul(translation([x,0.025,-23]),scaling([0.12,0.04,14])),color:[0.94,0.47,0.08],pattern:Pattern.emissive});
+  }
+  drawPreview(out:DrawItem[],time:number) {out.push(...this.scenery);this.drawBridge(out);this.pursuer.draw(out,time);}
   previewCameraShot():CameraShot {return {pos:[-5,3.4,8],target:[3,1.8,-12],sharpness:6};}
   labels():WorldLabel[] {
     const p=this.ctx.player.pos;
     // World labels otherwise draw through walls; show the signs only from their hallway.
     const labels:WorldLabel[]=p[0]<-23&&p[0]>-58&&p[2]<-16&&p[2]>-30 ? [
-      {pos:[-57.4,4.35,-19],text:this.stage===0?'A MAN':this.stage===1?'A COWBOY MAN':'A SMALLER MAN',size:0.52},
-      {pos:[-57.4,4.35,-27],text:this.stage===2?'AN EVEN BIGGER BEAR':'A BIGGER BEAR',size:0.52},
+      {pos:[-57.4,4.35,-19],text:this.stage===0?'A MAN':this.stage===1?'A COWBOY MAN':'A SMALLER MAN',size:this.stage===1?0.66:0.52,color:this.stage===1?'#7bffff':undefined},
+      {pos:[-57.4,4.35,-27],text:this.stage===2?'AN EVEN BIGGER BEAR':this.stage===1?'AN EVEN WAY BIGGER BEAR':'A BIGGER BEAR',size:this.stage===1?0.43:0.52,color:this.stage===1?'#ff8bea':undefined},
     ]:[];
-    if(p[0]<-23&&p[0]>-36&&p[2]<-16&&p[2]>-30) {
-      labels.push({pos:[-35.8,5.5,-19],text:this.stage===0?'A MAN':this.stage===1?'A COWBOY MAN':'A SMALLER MAN',size:0.6});
-      labels.push({pos:[-35.8,5.5,-27],text:this.stage===2?'AN EVEN BIGGER BEAR':'A BIGGER BEAR',size:0.6});
-    }
     if(this.tinyOpen&&this.room==='man'&&Math.hypot(p[0]-TINY_EXIT[0],p[2]-TINY_EXIT[2])<3) labels.push({pos:[TINY_EXIT[0],0.8,TINY_EXIT[2]],text:'EXIT',size:0.11,color:'#dcb4ff'});
     return labels;
   }
   cameraShot():CameraShot|null {
+    if(this.gunTime>=0 && (this.phase!=='dead'||this.phaseTime<1.2)) return {pos:[-64.5,2.6,-12.8],target:[-66.2,1.25,-17],sharpness:12};
     if(this.deathFocus) return {pos:[this.deathFocus[0]+4,3.4,this.deathFocus[2]+3],target:[this.deathFocus[0],0.9,this.deathFocus[2]],sharpness:4};
     const arrival=this.arrival.cameraShot();if(arrival)return arrival;
     // Match the shared shoulder camera, with real occlusion against this L-shaped layout.

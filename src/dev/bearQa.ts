@@ -15,8 +15,12 @@ export function bearQa(ctx:LevelContext, level:()=>BearLevel, restart:()=>void,t
   btn('First turn',()=>{const l=level() as any;l.setPhase('chase');l.chaseIndex=2;l.pursuer.pos=[0,0,-45];place([0,0,-54],Math.PI/2);});
   btn('Doors',()=>{const l=level() as any;l.setPhase('chase');l.pursuer.pos=[-23,0,-30];l.chaseIndex=4;place([-25,0,-23],Math.PI/2);});
   btn('Man',()=>{const l=level() as any;l.setPhase('chase');place([-60,0,-19],Math.PI/2);place([-65.5,0,-17],Math.PI/2);});
+  btn('Return gap',()=>{const l=level() as any;l.setPhase('chase');place([-60,0,-19],Math.PI/2);place([-55,0,-23],-Math.PI/2);step(1.5);});
   btn('Talk',()=>{(level() as any).talk();step(0.1);});
-  btn('Leave man',()=>{place([-61,0,-19],-Math.PI/2);step(0.4);});
+  btn('Leave man',()=>{place([-64.3,0,-17],-Math.PI/2);step(0.4);});
+  btn('Cowboy draw',()=>{actions.get('Man')?.();place([-64.3,0,-17],-Math.PI/2);step(0.65);});
+  btn('Pit',()=>{actions.get('Return gap')?.();place([-49,0,-23],-Math.PI/2);ctx.camera.pitch=-0.65;step(0.1);});
+  btn('Signs',()=>{actions.get('Doors')?.();place([-47,0,-23],Math.PI/2);});
   btn('Bear',()=>{(level() as any).setPhase('chase');place([-60,0,-27],Math.PI/2);place([-63,0,-29],Math.PI/2);step(0.25);});
   btn('Teddy front',()=>{place([-62,0,-29],Math.PI/2);});
   btn('Behind teddy',()=>{place([-74,0,-32],0);});
