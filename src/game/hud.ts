@@ -26,7 +26,7 @@ const STYLE = `
                    filter: drop-shadow(0 0 6px rgba(255,40,20,.9)); animation: hud-pulse .55s ease-in-out infinite; }
 .hud-ring.purple { border-color: #c04dff; box-shadow: 0 0 10px rgba(190,70,255,.9), inset 0 0 8px rgba(190,70,255,.6); }
 .hud-arrow.purple > div { background: #c04dff; filter: drop-shadow(0 0 7px rgba(190,70,255,.95)); }
-.hud-label { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); white-space: nowrap;
+.hud-label { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); white-space: pre; text-align: center;
              font-weight: 800; letter-spacing: .06em; text-shadow: 0 0 6px rgba(0,0,0,.55), 0 2px 3px rgba(0,0,0,.5); }
 @keyframes hud-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: .3; } }
 .hud-hint { position: absolute; bottom: 28px; left: 0; right: 0; text-align: center; font-size: 18px;

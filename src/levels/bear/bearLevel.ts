@@ -323,7 +323,7 @@ export class BearLevel implements Level {
     // World labels otherwise draw through walls; show the signs only from their hallway.
     const labels:WorldLabel[]=p[0]<-23&&p[0]>-58&&p[2]<-16&&p[2]>-30 ? [
       {pos:[-57.4,4.35,-19],text:this.stage===0?'A MAN':this.stage===1?'A COWBOY MAN':'A SMALLER MAN',size:this.stage===1?0.66:0.52,color:this.stage===1?'#7bffff':undefined},
-      {pos:[-57.4,4.35,-27],text:this.stage===2?'AN EVEN BIGGER BEAR':this.stage===1?'AN EVEN WAY BIGGER BEAR':'A BIGGER BEAR',size:this.stage===1?0.43:0.52,color:this.stage===1?'#ff8bea':undefined},
+      {pos:[-57.4,4.35,-27],text:this.stage===2?'AN EVEN BIGGER BEAR':this.stage===1?'AN EVEN WAY\nBIGGER BEAR':'A BIGGER BEAR',size:this.stage===1?0.60:0.52,color:this.stage===1?'#ff8bea':undefined},
     ]:[];
     if(this.tinyOpen&&this.room==='man'&&Math.hypot(p[0]-TINY_EXIT[0],p[2]-TINY_EXIT[2])<3) labels.push({pos:[TINY_EXIT[0],0.8,TINY_EXIT[2]],text:'EXIT',size:0.11,color:'#dcb4ff'});
     return labels;
