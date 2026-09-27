@@ -17,7 +17,7 @@ try {
   const rules = await server.ssrLoadModule('/src/levels/puppy/mechanics.ts');
   await initPhysics();
   const worlds = [];
-  const fixture = ({ safeFloor = false } = {}) => {
+  const fixture = ({ safeFloor = false, fps = 120 } = {}) => {
     const physics = new Physics(); worlds.push(physics);
     const player = new Player(); player.attach(physics);
     const down = new Set(), pressed = new Set();
@@ -36,8 +36,8 @@ try {
     // Isolate ragdoll recovery from valid deaths when a moving rim throws the body into a pit.
     if (safeFloor) physics.addStaticBox([0, -0.5, 0], [28, 1, 28]);
     const step = seconds => {
-      for (let t = 0; t < seconds - 1e-7; t += 1 / 120) {
-        const dt = 1 / 120;
+      for (let t = 0; t < seconds - 1e-7; t += 1 / fps) {
+        const dt = 1 / fps;
         if (player.mode === 'control' && !player.inPortal) player.update(dt, input, camera.yaw, level.obstacles(), camera.pitch);
         player.syncCollider(); level.update(dt); player.tickPortal(dt); physics.step(dt); player.afterPhysics(); pressed.clear();
       }
@@ -88,7 +88,9 @@ try {
   });
   check('miss lands alive and gets a recovery window', () => {
     const f = fixture(); f.battle(); f.place([0, 0, 7.5]); f.level.launch([0, 28, 0], true); f.level.setMove('recover'); f.level.recoverTime = 30;
-    f.step(4.2); assert.equal(f.level.phase, 'play'); assert.equal(f.player.mode, 'control');
+    // Physical landing orientation varies; require recovery within a bounded window.
+    for (let t = 0; t < 6 && f.player.mode === 'ragdoll'; t += 0.05) f.step(0.05);
+    assert.equal(f.level.phase, 'play'); assert.equal(f.player.mode, 'control');
     assert.ok(f.level.immunity > 0); assert.equal(f.level.status, 'playing');
     f.step(5); assert.equal(f.player.gettingUp, false); assert.ok(f.player.pos[1] >= -0.1);
   });
@@ -323,6 +325,37 @@ try {
   check('the collectible is occluded from the release button by the cage', () => {
     const f = fixture();
     assert.ok(f.level.vault.flightImpact([9.4, 1.7, -4.8], [9.15, 0.9, -12.8]));
+  });
+  check('paw and pounce throw the player clear at 30, 60 and 120 fps', () => {
+    for (const fps of [30, 60, 120]) for (const attack of ['paw', 'pounce']) {
+      const f = fixture({ safeFloor: true, fps }); f.battle(); f.place([0, 0, 0.4]); f.level.beginAttack(attack);
+      if (attack === 'pounce') {
+        f.level.pounceWindup = fps === 30 ? 0.48 : fps === 60 ? 0.68 : 0.88;
+        f.level.pounceAirtime = fps === 30 ? 0.44 : 0.54;
+      }
+      let start = null, peak = 0;
+      for (let i = 0; i < fps * 2; i++) {
+        f.step(1 / fps);
+        if (f.player.mode === 'ragdoll') {
+          start ??= [...f.player.pos];
+          peak = Math.max(peak, Math.hypot(f.player.vel[0], f.player.vel[2]));
+        }
+      }
+      assert.ok(start && f.contacts.size, `${attack} ${fps}: must hit`);
+      assert.ok(peak >= 6, `${attack} ${fps}: knockback speed ${peak}`);
+      assert.ok(Math.hypot(f.player.pos[0] - start[0], f.player.pos[2] - start[2]) > 1.3, `${attack} ${fps}: must throw clear ${JSON.stringify({start,end:f.player.pos,peak,mode:f.player.mode})}`);
+    }
+  });
+  check('a resting puppy brakes after an impulse instead of feeding back its own slide', () => {
+    for (const fps of [30, 60, 120]) {
+      const f = fixture({ fps }); f.battle(); f.place([8, 0, 0]);
+      f.level.setMove('recover'); f.level.recoverTime = 30;
+      const b = f.level.contactBody.body;
+      b.applyImpulse({ x: b.mass() * 5, y: 0, z: 0 }, true);
+      f.step(0.5); const p = b.translation(); f.step(1);
+      assert.ok(Math.hypot(b.linvel().x, b.linvel().z) < 0.1, `rest speed at ${fps}`);
+      assert.ok(Math.hypot(b.translation().x - p.x, b.translation().z - p.z) < 0.12, `continued drift at ${fps}`);
+    }
   });
   for (const world of worlds) world.dispose();
   console.log(`${count} puppy checks passed`);

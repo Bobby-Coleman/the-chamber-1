@@ -1,4 +1,4 @@
-import { add, approachAngle, clamp, easeInOut, lerp, lerp3, mul, normalize, rotationY, rotationZ, scaling, translation, type Vec3 } from '../../engine/math';
+import { add, approachAngle, clamp, easeInOut, lerp, lerp3, mul, normalize, rotationY, rotationZ, scaling, sub, translation, type Vec3 } from '../../engine/math';
 import { Pattern, type DrawItem, type Environment } from '../../engine/renderer';
 import { RAPIER } from '../../engine/physics';
 import { drawPortal, PORTAL_SQUEEZE_TIME, PortalArrival } from '../../entities/portal';
@@ -80,6 +80,7 @@ export class PuppyLevel implements Level {
     this.vault = new PrisonVault(ctx.physics);
     this.bridge = new VaultBridge(ctx.physics);
     this.contactBody = new PuppyContactBody(ctx.physics, this.puppy);
+    ctx.physics.postStepHooks.push(() => this.resolveAttackContact());
     ctx.player.recoveryMoveScale = 0.4;
     this.rim = new PortalRim(ctx.physics, [hoopX(0), HOOP_Y, HOOP_Z], HOOP_RADIUS);
     new Button(ctx.physics, BUTTON, [0.87, 0.045, 0.018], () => this.release());
@@ -262,7 +263,7 @@ export class PuppyLevel implements Level {
     const dog = this.puppy;
     const delta = Math.atan2(Math.sin(yaw - dog.yaw), Math.cos(yaw - dog.yaw));
     dog.yaw += clamp(delta, -3.8 * dt, 3.8 * dt);
-    return Math.abs(delta);
+    return Math.abs(Math.atan2(Math.sin(yaw - (dog.physicalRoot?.yaw ?? dog.yaw)), Math.cos(yaw - (dog.physicalRoot?.yaw ?? dog.yaw))));
   }
 
   private localPlayer() {
@@ -297,8 +298,10 @@ export class PuppyLevel implements Level {
       const dx = dog.pos[0] - player.pos[0], dz = dog.pos[2] - player.pos[2], distance = Math.hypot(dx, dz);
       if (distance < 4) {
         const away = distance > 0.1 ? [dx / distance, dz / distance] : [-dog.forward[0], -dog.forward[2]];
-        dog.pos[0] = clamp(dog.pos[0] + away[0] * dt * 2, -6, 6);
-        dog.pos[2] = clamp(dog.pos[2] + away[1] * dt * 2, -3.4, 7.0);
+        const angle = this.turnDog(Math.atan2(away[0], away[1]), dt);
+        const speed = angle < 0.55 ? 2 : 0;
+        dog.pos[0] = clamp(dog.pos[0] + dog.forward[0] * dt * speed, -6, 6);
+        dog.pos[2] = clamp(dog.pos[2] + dog.forward[2] * dt * speed, -3.4, 7.0);
         dog.pose = 'walk';
       } else dog.pose = 'happy';
       return;
@@ -384,6 +387,32 @@ export class PuppyLevel implements Level {
         dog.pose = 'happy';
         if (this.moveTime > this.recoverTime && !this.tumbling && !player.gettingUp && this.immunity <= 0) this.setMove('chase');
         break;
+    }
+  }
+
+  private resolveAttackContact() {
+    const player = this.ctx.player;
+    if (this.phase !== 'play' || this.tumbling || player.gettingUp || player.inPortal || player.knockProtection > 0 || this.immunity > 0) return;
+    const active = this.move === 'paw'
+      ? this.moveTime >= PAW_WINDUP && this.moveTime <= PAW_WINDUP + PAW_SWEEP_TIME + 0.15
+      : this.move === 'pounce' && this.moveTime >= this.pounceWindup && this.moveTime <= this.pounceWindup + this.pounceAirtime + 0.2;
+    if (!active) return;
+    const contact = this.contactBody.attackContact(player);
+    if (!contact) return;
+    const horizontal = Math.hypot(contact[0], contact[2]);
+    const away = sub(player.body!.position('pelvis'), this.puppy.physicalRoot?.pos ?? this.puppy.pos);
+    const outward = Math.hypot(away[0], away[2]);
+    const direction = this.move === 'paw' && horizontal > 1 ? [contact[0] / horizontal, contact[2] / horizontal] : outward > 0.5 ? [away[0] / outward, away[2] / outward] : [this.puppy.forward[0], this.puppy.forward[2]];
+    const speed = clamp(Math.hypot(...contact) * 0.85, 7.5, 11);
+    // Release the motors and apply an impulse to the existing body, preserving its pose.
+    const velocity: Vec3 = [direction[0] * speed, this.move === 'pounce' ? 7 : 4.5, direction[1] * speed];
+    this.launch(velocity, false);
+    this.contactBody.separateAfterHit();
+    // A pounce can drive a foot into the floor during the contact step. Give all
+    // limbs the outgoing momentum so that compressed pose cannot swallow the hit.
+    for (const part of Object.values(player.body!.parts)) {
+      const v = part.linvel(), m = part.mass();
+      part.applyImpulse({ x: (velocity[0] - v.x) * m, y: (velocity[1] - v.y) * m, z: (velocity[2] - v.z) * m }, true);
     }
   }
 
