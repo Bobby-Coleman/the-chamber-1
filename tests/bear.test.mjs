@@ -86,6 +86,17 @@ try {
   assert.ok(f.level.gunTime>0);assert.equal(f.level.phase,'choice');assert.ok(f.player.pos[0]<-64);
   f.step(1);assert.equal(f.level.phase,'dead');assert.equal(f.player.mode,'ragdoll');
  });
+ test('entrance landmark changes each visit while the forest route stays walkable',()=>{
+  let f=fixture();
+  for(let stage=0;stage<3;stage++) {
+   if(stage)f=fixture(false);
+   assert.equal(f.level.stage,stage);f.physics.step(.02);
+   assert.equal(!!f.physics.raycast([2,2,1.8],[0,-1,0],1.5),stage>0);
+   f.place([0,0,5]);for(const [x,z] of [[-3.5,-4],[-3.5,-7],[0,-10],[0,-16],[3,-22],[3,-24]])walk(f,x,z,false);
+   if(stage===2){f.place([-50,0,-23]);assert.deepEqual(f.level.labels().map(l=>l.text.replace(/\s+/g,' ')),['A TINY MAN','A SUPER MEGA GIANT BEAR']);}
+   f.level.die(true);
+  }
+ });
  test('selector handles 100, backspace, zero and unavailable numbers',()=>{const a=new LevelNumberEntry(100);for(const n of [1,0,0])a.digit(n);assert.equal(a.confirm(),100);a.clear();a.digit(0);assert.equal(a.confirm(),null);a.digit(9);a.digit(9);a.digit(9);assert.equal(a.confirm(),null);a.digit(1);a.digit(2);a.backspace();assert.equal(a.confirm(),1);});
  test('lever animates, rejects launch during spin, then selects an existing level',()=>{const f=fixture();let chosen=0;const m=new CasinoSelector(f,5,1,n=>chosen=n);m.spin();m.confirm();assert.equal(chosen,0);for(let i=0;i<180;i++)m.update(1/60);assert.equal(m.spinTime,-1);assert.ok(m.entry.selected>=1&&m.entry.selected<=5);m.confirm();assert.equal(chosen,m.entry.selected);});
  console.log(`${passed} gameplay checks passed.`);

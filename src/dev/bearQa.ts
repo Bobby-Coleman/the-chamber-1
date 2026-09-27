@@ -9,6 +9,8 @@ export function bearQa(ctx:LevelContext, level:()=>BearLevel, restart:()=>void,t
   const place=(pos:[number,number,number],yaw=0)=>{ctx.player.reset(pos);ctx.player.emerge([pos[0],pos[1]+0.95,pos[2]],yaw,[0,0,0],0);ctx.player.gettingUp=false;ctx.player.stun=0;ctx.camera.reset(yaw);step(0.1);};
   const btn=(name:string,fn:()=>void)=>{actions.set(name,fn);const b=document.createElement('button');b.textContent=name;b.style.cssText='padding:7px;margin:3px';b.onclick=()=>{fn();draw();const l=level() as any;info.textContent=JSON.stringify({stage:l.stage,phase:l.phase,room:l.room,pos:ctx.player.pos,gun:l.gunTime,tiny:l.tinyOpen});};panel.append(b);};
   btn('Start',()=>{resetBearStory();restart();step(5);place([0,0,5]);});
+  btn('Entrance tree',()=>{place([-0.7,0,5.8],-0.3);ctx.camera.pitch=-0.22;step(.2);});
+  btn('Beaver',()=>{place([0.5,0,4.5],-0.65);ctx.camera.pitch=-0.35;step(.2);});
   btn('Forest',()=>{place([-3.5,0,-7]);step(0.35);});
   btn('Chase',()=>{place([3,0,-24]);step(1.4);});
   btn('Patrol',()=>{place([0,0,-10]);step(4);});

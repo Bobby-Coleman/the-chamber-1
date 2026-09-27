@@ -5,6 +5,7 @@ import { drawBody, poseFrames, REST_POSE } from '../../game/body';
 import { drawPortal, PortalArrival } from '../../entities/portal';
 import { DEFAULT_ENV, type CameraShot, type Level, type LevelContext, type LevelStatus, type WorldLabel } from '../level';
 import { Bear } from './bear';
+import { drawForestLandmark } from './forestLandmark';
 import { BearAudio, LINES } from './audio';
 import { CHASE_ROUTE, PATROL_ROUTE, FOREST_TRAIL, distanceToPath, pathDistance, pursuitSpeed } from './chase';
 
@@ -101,7 +102,7 @@ export class BearLevel implements Level {
     for(const z of [-27,-19]) {
       this.box([-58,5.9,z],[0.8,6.2,2.2],wall,true,Pattern.panels);
       this.box([-61.8,2.8,z],[0.6,5.6,4.8],wall,true,Pattern.panels);
-      this.box([-57.52,4.35,z],[0.16,this.stage===1?1.65:1.1,this.stage===1?7.6:6.6],[0.025,0.03,0.035]);
+      this.box([-57.52,4.35,z],[0.16,this.stage>0?1.65:1.1,this.stage>0?7.6:6.6],[0.025,0.03,0.035]);
       if(this.stage===1) {
         const neon=z===-19?[0.05,1,1]:[1,0.08,0.62];
         for(const y of [3.6,5.1])this.box([-57.38,y,z],[0.12,0.07,7.5],neon,false,Pattern.emissive);
@@ -117,6 +118,8 @@ export class BearLevel implements Level {
     this.box([-75,0.45,-14],[2,0.9,1],[0.40,0.43,0.40],true);
   }
   private buildForest() {
+    if(this.stage===0)this.ctx.physics.addStaticCylinder([4.5,3.4,1.8],0.48,6.8);
+    else this.ctx.physics.addStaticBox([3.4,0.65,1.8],[5.4,1.3,1]);
     this.box([0,0.012,-11],[18,0.024,34],[0.19,0.16,0.10]);
     // Boulders close off both wall-hugging shortcuts and funnel the player between tree clusters.
     for(const side of [-1,1])for(let i=0;i<12;i++) {
@@ -129,6 +132,7 @@ export class BearLevel implements Level {
     for(let row=0;row<10;row++)for(let col=0;col<6;col++) {
       const x=-6.5+col*2.55+(random()-0.5)*1.15,z=1-row*2.9+(random()-0.5)*1.3;
       const point:Vec3=[x,0,z];
+      if(z>-1&&x>0)continue;
       if(distanceToPath(point,FOREST_TRAIL)<1.3||distanceToPath(point,closedPatrol)<1.7||PATROL_ROUTE.some(start=>distanceToPath(point,[start,[3,0,-20]])<1.5))continue;
       const height=6.4+random()*2.1,r=0.22+random()*0.13;
       this.ctx.physics.addStaticCylinder([x,height/2,z],r,height);
@@ -290,7 +294,7 @@ export class BearLevel implements Level {
   }
   draw(out:DrawItem[],time:number) {
     out.push(...this.scenery);this.arrival.draw(out);if(!this.returnGapOpen)this.pursuer.draw(out,time);this.bigger.draw(out,time);
-    this.drawBridge(out);
+    this.drawBridge(out);drawForestLandmark(out,this.stage,time);
     const s=this.stage===2?0.24:1, p=this.ctx.player.pos;
     const running=this.stage===2&&this.tinyTime>2.4&&!this.tinyOpen;
     const yaw=running?Math.atan2(this.manPos[0]-TINY_EXIT[0],this.manPos[2]-TINY_EXIT[2]):Math.atan2(this.manPos[0]-p[0],this.manPos[2]-p[2]);
@@ -316,14 +320,14 @@ export class BearLevel implements Level {
     out.push({mesh:'box',model:mul(translation([-44,-0.25-drop,-23]),scaling([8,0.5,14])),color:[0.48,0.52,0.51],pattern:Pattern.panels,param:2});
     if(this.returnGapOpen)for(const x of [-48,-40])out.push({mesh:'box',model:mul(translation([x,0.025,-23]),scaling([0.12,0.04,14])),color:[0.94,0.47,0.08],pattern:Pattern.emissive});
   }
-  drawPreview(out:DrawItem[],time:number) {out.push(...this.scenery);this.drawBridge(out);this.pursuer.draw(out,time);}
+  drawPreview(out:DrawItem[],time:number) {out.push(...this.scenery);this.drawBridge(out);drawForestLandmark(out,this.stage,time);this.pursuer.draw(out,time);}
   previewCameraShot():CameraShot {return {pos:[-5,3.4,8],target:[3,1.8,-12],sharpness:6};}
   labels():WorldLabel[] {
     const p=this.ctx.player.pos;
     // World labels otherwise draw through walls; show the signs only from their hallway.
     const labels:WorldLabel[]=p[0]<-23&&p[0]>-58&&p[2]<-16&&p[2]>-30 ? [
-      {pos:[-57.4,4.35,-19],text:this.stage===0?'A MAN':this.stage===1?'A COWBOY MAN':'A SMALLER MAN',size:this.stage===1?0.66:0.52,color:this.stage===1?'#7bffff':undefined},
-      {pos:[-57.4,4.35,-27],text:this.stage===2?'AN EVEN BIGGER BEAR':this.stage===1?'AN EVEN WAY\nBIGGER BEAR':'A BIGGER BEAR',size:this.stage===1?0.60:0.52,color:this.stage===1?'#ff8bea':undefined},
+      {pos:[-57.4,4.35,-19],text:this.stage===0?'A MAN':this.stage===1?'A COWBOY MAN':'A TINY MAN',size:this.stage===1?0.66:0.52,color:this.stage===1?'#7bffff':undefined},
+      {pos:[-57.4,4.35,-27],text:this.stage===2?'A SUPER MEGA\nGIANT BEAR':this.stage===1?'AN EVEN WAY\nBIGGER BEAR':'A BIGGER BEAR',size:this.stage===1?0.60:0.52,color:this.stage===1?'#ff8bea':undefined},
     ]:[];
     if(this.tinyOpen&&this.room==='man'&&Math.hypot(p[0]-TINY_EXIT[0],p[2]-TINY_EXIT[2])<3) labels.push({pos:[TINY_EXIT[0],0.8,TINY_EXIT[2]],text:'EXIT',size:0.11,color:'#dcb4ff'});
     return labels;
