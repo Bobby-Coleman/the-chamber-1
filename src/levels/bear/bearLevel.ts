@@ -31,6 +31,10 @@ export class BearLevel implements Level {
   private walls: {p:Vec3;s:Vec3}[] = [];
   private pursuer: Bear;
   private bigger: Bear;
+  private bearScreen?: RAPIER.Collider;
+  private bearDoor?: RAPIER.Collider;
+  private bearTrapped=false;
+  private bearTrapTime=0;
   private bridgeFloor!: RAPIER.Collider;
   private gapTime=0;
   private phase: Phase = 'approach';
@@ -101,7 +105,11 @@ export class BearLevel implements Level {
     for(const [za,zb] of [[-36,-28.1],[-25.9,-20.1],[-17.9,-10]]) w(-58,(za+zb)/2,0.8,zb-za);
     for(const z of [-27,-19]) {
       this.box([-58,5.9,z],[0.8,6.2,2.2],wall,true,Pattern.panels);
-      this.box([-61.8,2.8,z],[0.6,5.6,4.8],wall,true,Pattern.panels);
+      if(this.stage===1 && z===-27) {
+        this.bearScreen=this.ctx.physics.addStaticBox([-61.8,2.8,z],[0.6,5.6,4.8]);
+        this.bearDoor=this.ctx.physics.addStaticBox([-58,1.4,z],[0.35,2.8,2.2]);
+        this.bearDoor.setEnabled(false);
+      } else this.box([-61.8,2.8,z],[0.6,5.6,4.8],wall,true,Pattern.panels);
       this.box([-57.52,4.35,z],[0.16,this.stage>0?1.65:1.1,this.stage>0?7.6:6.6],[0.025,0.03,0.035]);
       if(this.stage===1) {
         const neon=z===-19?[0.05,1,1]:[1,0.08,0.62];
@@ -264,7 +272,18 @@ export class BearLevel implements Level {
           this.gunTime+=dt;
           if(this.gunTime>0.95) {this.flash=0.18;player.speedScale=1;this.die(true,true);}
         }
-        if(this.stage<2 && this.room==='bear' && p[0]<-62.4) {
+        // The giant cannot fit through the door: entry commits this visit's encounter.
+        if(this.stage===1 && !this.bearTrapped && this.room==='bear' && p[0]<-58.65) {
+          this.bearTrapped=true;this.bearDoor?.setEnabled(true);this.bearScreen?.setEnabled(false);
+          this.audio.effect('roar');this.ctx.camera.addShake(0.3);
+        }
+        if(this.bearTrapped) {
+          this.bearTrapTime+=dt;
+          if(this.bearTrapTime>0.45) {
+            this.moveBear(this.bigger,[clamp(p[0],-75,-60),0,clamp(p[2],-33.5,-25.5)],9.5,dt);
+            if(Math.hypot(p[0]-this.bigger.pos[0],p[2]-this.bigger.pos[2])<6.55)this.maul(this.bigger);
+          }
+        } else if(this.stage<2 && this.room==='bear' && p[0]<-62.4) {
           this.moveBear(this.bigger,[clamp(p[0],-75,-61),0,clamp(p[2],-33.5,-25.5)],5.8,dt);
           if(Math.hypot(p[0]-this.bigger.pos[0],p[2]-this.bigger.pos[2])<3.8*(this.bigger.size/1.45) && p[1]<4) this.maul(this.bigger);
         } else this.bigger.moving=false;
@@ -285,7 +304,7 @@ export class BearLevel implements Level {
         this.attackTime+=dt;
         if(this.attackTime>0.32 && this.attacker) {
           const d=Math.hypot(p[0]-this.attacker.pos[0],p[2]-this.attacker.pos[2]);
-          if(d<(this.attacker===this.bigger?4.3*(this.bigger.size/1.45):2.6)) this.die(this.attacker===this.bigger);
+          if((this.bearTrapped&&this.attacker===this.bigger)||d<(this.attacker===this.bigger?4.3*(this.bigger.size/1.45):2.6)) this.die(this.attacker===this.bigger);
           else {this.attackTime=-1;this.attacker=null;}
         }
       }
@@ -297,7 +316,7 @@ export class BearLevel implements Level {
   }
   draw(out:DrawItem[],time:number) {
     out.push(...this.scenery);this.arrival.draw(out);if(!this.returnGapOpen)this.pursuer.draw(out,time);this.bigger.draw(out,time);
-    this.drawBridge(out);drawForestLandmark(out,this.stage,time);
+    this.drawBridge(out);this.drawBearTrap(out);drawForestLandmark(out,this.stage,time);
     const s=this.stage===2?0.24:1, p=this.ctx.player.pos;
     const running=this.stage===2&&this.tinyTime>2.4&&!this.tinyOpen;
     const yaw=running?Math.atan2(this.manPos[0]-TINY_EXIT[0],this.manPos[2]-TINY_EXIT[2]):Math.atan2(this.manPos[0]-p[0],this.manPos[2]-p[2]);
@@ -318,12 +337,21 @@ export class BearLevel implements Level {
       if(this.tinyOpen) drawPortal(out,TINY_EXIT,[0,0,-1],0.22,true);
     }
   }
+  private drawBearTrap(out:DrawItem[]) {
+    if(this.stage!==1)return;
+    const drop=this.bearTrapped?Math.min(6,this.bearTrapTime*14):0;
+    out.push({mesh:'box',model:mul(translation([-61.8,2.8-drop,-27]),scaling([0.6,5.6,4.8])),color:[0.82,0.84,0.83],pattern:Pattern.panels,param:2});
+    if(this.bearTrapped) {
+      out.push({mesh:'box',model:mul(translation([-58,1.4,-27]),scaling([0.35,2.8,2.2])),color:[0.25,0.28,0.27],pattern:Pattern.panels,param:2});
+      for(const z of [-27.95,-26.05])out.push({mesh:'box',model:mul(translation([-58.2,1.4,z]),scaling([0.05,2.6,0.07])),color:[1,0.16,0.025],pattern:Pattern.emissive});
+    }
+  }
   private drawBridge(out:DrawItem[]) {
     const drop=this.returnGapOpen?Math.min(6.5,this.gapTime*this.gapTime*12):0;
     out.push({mesh:'box',model:mul(translation([-44,-0.25-drop,-23]),scaling([8,0.5,14])),color:[0.48,0.52,0.51],pattern:Pattern.panels,param:2});
     if(this.returnGapOpen)for(const x of [-48,-40])out.push({mesh:'box',model:mul(translation([x,0.025,-23]),scaling([0.12,0.04,14])),color:[0.94,0.47,0.08],pattern:Pattern.emissive});
   }
-  drawPreview(out:DrawItem[],time:number) {out.push(...this.scenery);this.drawBridge(out);drawForestLandmark(out,this.stage,time);this.pursuer.draw(out,time);}
+  drawPreview(out:DrawItem[],time:number) {out.push(...this.scenery);this.drawBridge(out);this.drawBearTrap(out);drawForestLandmark(out,this.stage,time);this.pursuer.draw(out,time);}
   previewCameraShot():CameraShot {return {pos:[-5,3.4,8],target:[3,1.8,-12],sharpness:6};}
   labels():WorldLabel[] {
     const p=this.ctx.player.pos;

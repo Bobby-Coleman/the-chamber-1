@@ -103,6 +103,17 @@ try {
   const f=fixture(false);assert.ok(f.level.bigger.size>size*1.7);f.choice();f.place([-65,0,-29]);f.step(1.7);
   assert.equal(f.level.phase,'dead');assert.equal(f.player.mode,'ragdoll');
  });
+ test('second-run bear door seals immediately and entrance camping or retreat always ends in a maul',()=>{
+  for(const escape of ['wait','retreat','left','right','jump']) {
+   const first=fixture();first.level.die(true);const f=fixture(false);f.choice();f.place([-58.8,0,-27]);f.step(.05);
+   assert.equal(f.level.bearTrapped,true);assert.equal(f.level.bearDoor.isEnabled(),true);assert.equal(f.level.bearScreen.isEnabled(),false);
+   assert.ok(f.physics.raycast([-59,1,-27],[1,0,0],2),'door must physically block retreat');
+   if(escape!=='wait'){f.down.add('KeyW');f.down.add('ShiftLeft');f.camera.yaw=escape==='left'?0:escape==='right'?Math.PI:-Math.PI/2;}
+   for(let i=0;i<480&&f.level.phase!=='dead';i++){if(escape==='jump')f.pressed.add('Space');f.step(1/120);}
+   assert.equal(f.level.phase,'dead',escape+' must not evade the huge bear');assert.equal(f.player.mode,'ragdoll');
+   assert.equal(fixture(false).level.stage,2);
+  }
+ });
  test('selector handles 100, backspace, zero and unavailable numbers',()=>{const a=new LevelNumberEntry(100);for(const n of [1,0,0])a.digit(n);assert.equal(a.confirm(),100);a.clear();a.digit(0);assert.equal(a.confirm(),null);a.digit(9);a.digit(9);a.digit(9);assert.equal(a.confirm(),null);a.digit(1);a.digit(2);a.backspace();assert.equal(a.confirm(),1);});
  test('lever animates, rejects launch during spin, then selects an existing level',()=>{const f=fixture();let chosen=0;const m=new CasinoSelector(f,5,1,n=>chosen=n);m.spin();m.confirm();assert.equal(chosen,0);for(let i=0;i<180;i++)m.update(1/60);assert.equal(m.spinTime,-1);assert.ok(m.entry.selected>=1&&m.entry.selected<=5);m.confirm();assert.equal(chosen,m.entry.selected);});
  console.log(`${passed} gameplay checks passed.`);

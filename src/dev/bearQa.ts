@@ -24,6 +24,8 @@ export function bearQa(ctx:LevelContext, level:()=>BearLevel, restart:()=>void,t
   btn('Pit',()=>{actions.get('Return gap')?.();place([-49,0,-23],-Math.PI/2);ctx.camera.pitch=-0.65;step(0.1);});
   btn('Signs',()=>{actions.get('Doors')?.();place([-47,0,-23],Math.PI/2);});
   btn('Bear',()=>{(level() as any).setPhase('chase');place([-60,0,-27],Math.PI/2);place([-63,0,-29],Math.PI/2);step(0.25);});
+  btn('Bear ambush',()=>{(level() as any).setPhase('chase');place([-59.3,0,-27],1.8);step(.5);});
+  btn('Sealed bear door',()=>{(level() as any).setPhase('chase');place([-59.3,0,-27],-Math.PI/2);step(.2);});
   btn('Room bear',()=>{(level() as any).setPhase('chase');place([-60,0,-27],Math.PI/2);place([-65,0,-33.5],2.4);});
   btn('Teddy front',()=>{place([-62,0,-29],Math.PI/2);});
   btn('Behind teddy',()=>{place([-74,0,-32],0);});
