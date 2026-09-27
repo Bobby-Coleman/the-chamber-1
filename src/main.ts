@@ -9,13 +9,14 @@ import { Hud, type ScreenLabel, type ScreenMarker } from './game/hud';
 import { Interaction } from './game/interaction';
 import { PauseMenu } from './game/pauseMenu';
 import { Player } from './game/player';
-import { settings } from './game/settings';
+import { saveSettings, settings } from './game/settings';
 import { DartsLevel } from './levels/darts/dartsLevel';
 import { CakeLevel } from './levels/cake/cakeLevel';
 import { GrenadeLevel } from './levels/grenade/grenadeLevel';
 import type { Level, LevelContext, TrackedTarget, WorldLabel } from './levels/level';
 import { LobbyLevel } from './levels/lobby/lobbyLevel';
 import { PuppyLevel } from './levels/puppy/puppyLevel';
+import { BearLevel } from './levels/bear/bearLevel';
 
 const SPAWN: Vec3 = [0, 0, 6];
 /** Seconds on the title screen before the game starts by itself. */
@@ -27,6 +28,7 @@ const LEVELS: ((ctx: LevelContext) => Level)[] = [
   // Meant to be a secret level reached by an easter egg; level 3 for now.
   (ctx) => new CakeLevel(ctx),
   (ctx) => new PuppyLevel(ctx),
+  (ctx) => new BearLevel(ctx),
 ];
 const params = new URLSearchParams(location.search);
 /** `?sandbox` opens the mechanics test room; `?level=N` skips the lobby and starts at level N. */
@@ -117,6 +119,7 @@ async function main() {
   hud.setLevel('');
 
   function startLevel() {
+    level.dispose?.();
     interaction.release();
     ctx.physics.dispose();
     ctx.physics = freshPhysics();
@@ -125,6 +128,7 @@ async function main() {
     camera.reset(0);
     hud.hide();
     level = makeLevel(ctx);
+    if (!inLobby && !sandbox) { settings.lastPlayedLevel = levelIndex + 1; saveSettings(); }
     addChamberColliders(ctx.physics, level.chamber);
     nextOffered = false;
   }
@@ -192,7 +196,7 @@ async function main() {
     if (playing && pauseMenu.isOpen) {
       // Frozen: keep drawing, advance nothing.
     } else if (playing) {
-      if (input.wasPressed('KeyR')) startLevel();
+      if (input.wasPressed('KeyR') || level.restartRequested) startLevel();
       // After a win, N moves on to the next chamber.
       const hasNext = !sandbox && levelIndex < LEVELS.length - 1;
       if (level.status === 'won' && hasNext) {
@@ -271,7 +275,7 @@ async function main() {
   function frame(now: number) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (!(import.meta.env.DEV && params.has('puppyQa'))) tick(dt);
+    if (!(import.meta.env.DEV && (params.has('puppyQa') || params.has('bearQa') || params.has('lobbyQa')))) tick(dt);
     draw(dt);
     requestAnimationFrame(frame);
   }
@@ -299,6 +303,20 @@ async function main() {
       begin();
       const { puppyQa } = await import('./dev/puppyQa');
       puppyQa(ctx, () => level, startLevel, tick, () => draw(1 / 60));
+    }
+    if (params.has('lobbyQa') && level instanceof LobbyLevel) {
+      begin();
+      for(let t=0;t<5;t+=1/60) tick(1/60);
+      player.reset([0,0,-4]);player.emerge([0,0.95,-4],0,[0,0,0],0);player.gettingUp=false;player.stun=0;
+      camera.reset(); camera.pitch=0.05;
+      for(let t=0;t<0.4;t+=1/60)tick(1/60);
+      if(params.has('spin')) { (level as any).selector.spin();for(let t=0;t<(Number(params.get('spin'))||1);t+=1/60)tick(1/60); }
+      draw(1/60);
+    }
+    if (params.has('bearQa') && level instanceof BearLevel) {
+      begin();
+      const { bearQa } = await import('./dev/bearQa');
+      bearQa(ctx, () => level as BearLevel, startLevel, tick, () => draw(1 / 60));
     }
   }
 }

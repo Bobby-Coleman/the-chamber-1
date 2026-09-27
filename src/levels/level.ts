@@ -53,6 +53,9 @@ export interface Level {
   /** Tweaks to the standard chamber (e.g. a hole in a wall). */
   readonly chamber?: ChamberOptions;
   status: LevelStatus;
+  /** Optional in-world retry, after the level has finished showing the death. */
+  restartRequested?: boolean;
+  dispose?(): void;
   update(dt: number): void;
   draw(out: DrawItem[], time: number): void;
   /** Optional title-screen composition that keeps the level's surprises hidden. */

@@ -11,13 +11,15 @@ export const settings = {
   invertY: false,
   /** Which level (1-based) the lobby's START portal leads to. */
   startLevel: 1,
+  lastPlayedLevel: 0,
 };
 
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
   if (typeof saved.mouseSpeed === 'number') settings.mouseSpeed = saved.mouseSpeed;
   if (typeof saved.invertY === 'boolean') settings.invertY = saved.invertY;
-  if (typeof saved.startLevel === 'number') settings.startLevel = saved.startLevel;
+  if (Number.isInteger(saved.startLevel) && saved.startLevel >= 1) settings.startLevel = saved.startLevel;
+  if (Number.isInteger(saved.lastPlayedLevel) && saved.lastPlayedLevel >= 1) settings.lastPlayedLevel = saved.lastPlayedLevel;
 } catch {
   // No storage: defaults it is.
 }
