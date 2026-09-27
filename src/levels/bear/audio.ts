@@ -9,6 +9,7 @@ export const LINES = {
 export class BearAudio {
   private voice: HTMLAudioElement | null = null;
   private ctx: AudioContext | null = null;
+  private wildlife:HTMLAudioElement|null=null;
   say(key: keyof typeof LINES, tiny = false) {
     this.stop();
     if (typeof Audio === 'undefined') return;
@@ -18,23 +19,31 @@ export class BearAudio {
     voice.playbackRate = tiny ? 1.65 : 1;
     void voice.play().catch(() => {});
   }
-  effect(kind: 'roar' | 'shot' | 'step' | 'hit') {
+  effect(kind: 'roar' | 'growl' | 'shot' | 'step' | 'hit') {
+    if(kind==='roar'||kind==='growl') {
+      if(typeof Audio==='undefined')return;
+      this.wildlife?.pause();
+      const recording=this.wildlife=new Audio(clips[`../../assets/audio/bear/recorded-${kind}.wav`]);
+      recording.volume=kind==='roar'?0.85:0.48;
+      void recording.play().catch(()=>{});
+      return;
+    }
     if (typeof AudioContext === 'undefined') return;
     const ctx = this.ctx ??= new AudioContext();
     void ctx.resume().catch(() => {});
-    const duration = kind === 'roar' ? 1.15 : kind === 'shot' ? 0.3 : 0.12;
+    const duration = kind === 'shot' ? 0.3 : 0.12;
     const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * duration), ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < data.length; i++) {
       const t = i / ctx.sampleRate;
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-t / (duration * 0.3)) * (kind === 'roar' ? 0.6 + 0.4 * Math.sin(t * 95) : 1);
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-t / (duration * 0.3));
     }
     const source = ctx.createBufferSource(), gain = ctx.createGain(), filter = ctx.createBiquadFilter();
-    source.buffer = buffer; filter.type = 'lowpass'; filter.frequency.value = kind === 'shot' ? 2600 : kind === 'roar' ? 420 : 160;
+    source.buffer = buffer; filter.type = 'lowpass'; filter.frequency.value = kind === 'shot' ? 2600 : 160;
     gain.gain.value = kind === 'step' ? 0.17 : 0.55;
     source.connect(filter); filter.connect(gain); gain.connect(ctx.destination); source.start();
     source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
   }
   stop() { this.voice?.pause(); this.voice = null; }
-  dispose() { this.stop(); void this.ctx?.close().catch(() => {}); this.ctx = null; }
+  dispose() { this.stop();this.wildlife?.pause();this.wildlife=null; void this.ctx?.close().catch(() => {}); this.ctx = null; }
 }

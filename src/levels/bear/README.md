@@ -2,7 +2,8 @@
 
 Standalone level using the existing player, ragdoll physics, renderer and portal effects.
 
-- Approach the woodland, then run through the left-turn hallway.
+- Walk a winding route through the forest while the smaller bear patrols. Detection at the forest exit is unavoidable. Run the north–west–south–west corridor, then use the 35-metre final straight to read and choose. Advance signs repeat the door names at the start of the final hallway.
+- Pursuit speed changes smoothly to gain and lose ground during a sprint; stopping lets the bear close in. Movement checks prevent the bear from passing through walls and trees.
 - Narrow doorways and entry screens conceal both encounters from the chase hall.
 - Visit 1: harmless talking man; the bigger bear causes a visible maul and retry.
 - Visit 2: cowboy greets the player and draws when they leave; the bigger bear remains dangerous.
@@ -20,4 +21,4 @@ Development-only visual controls: `?level=5&bearQa`. `?lobbyQa` frames the selec
 
 ## Audio
 
-Dialogue WAV files were generated locally using the installed Microsoft speech synthesizer. Tiny-man dialogue changes playback pitch. Bear impacts, chase footfalls, gunshot, growl and slot-machine ticks are synthesized in the browser. No external service or runtime voice download is required.
+Dialogue WAV files were generated locally using the installed Microsoft speech synthesizer. Tiny-man dialogue changes playback pitch. Growls and roars use public-domain US Fish and Wildlife Service recordings sourced through SoundBible; see `src/assets/audio/bear/SOURCES.txt` for original sources and excerpt details. Impacts, footfalls, gunshots and slot-machine ticks are synthesized in the browser. No external service or runtime voice download is required.

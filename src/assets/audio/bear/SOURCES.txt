@@ -1,0 +1,16 @@
+Recorded bear sounds
+===================
+Source provider credits: fws.gov (US Fish and Wildlife Service), via SoundBible.
+Both source pages explicitly label the recordings Public Domain.
+
+recorded-growl.wav
+Source: https://soundbible.com/241-Bear-Growl-And-Roar.html
+Original WAV: https://soundbible.com/grab.php?id=241&type=wav
+Excerpt: 0.0–1.8 seconds, mixed to mono, gain-normalized, short fades.
+
+recorded-roar.wav
+Source: https://soundbible.com/242-Bear-Growl-And-Roar-2.html
+Original WAV: https://soundbible.com/grab.php?id=242&type=wav
+Excerpt: 1.2–4.5 seconds, mixed to mono, gain-normalized, short fades.
+
+Downloaded 2026-09-27. No synthetic animal vocalization is used.

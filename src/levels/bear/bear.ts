@@ -1,6 +1,6 @@
-import { mul, rotationY, rotationZ, scaling, translation, type Vec3 } from '../../engine/math';
+import { mul, rotationX, rotationY, rotationZ, scaling, translation, type Vec3 } from '../../engine/math';
 import { Pattern, type DrawItem, type MeshName } from '../../engine/renderer';
-import { RAPIER, type Physics } from '../../engine/physics';
+import { GROUPS_QUERY_WORLD, RAPIER, type Physics } from '../../engine/physics';
 
 /** Broad shoulders, round ears, short tail and heavy paws distinguish the bear from the puppy. */
 export class Bear {
@@ -9,17 +9,26 @@ export class Bear {
   gait = 0;
   moving = false;
   attack = 0;
+  private previous:Vec3;
+  private controller:RAPIER.KinematicCharacterController;
   readonly body: RAPIER.RigidBody;
   constructor(physics: Physics, pos: Vec3, readonly size = 1, readonly teddy = false) {
-    this.pos = [...pos];
+    this.pos = [...pos];this.previous=[...pos];
+    this.controller=physics.world.createCharacterController(0.03);
     this.body = physics.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(...pos));
     const shapes = teddy
       ? [[0, 2.3, 0, 1.65, 2.2, 1.25], [0, 5.0, 0, 1.4, 1.3, 1.15]]
-      : [[0, 1.35, 0, 0.9, 1.1, 1.5], [0, 1.65, 1.4, 0.7, 0.75, 0.8]];
+      : [[0, 1.04, 0, 0.55, 0.61, 1.1], [0, 1.24, 1.25, 0.37, 0.36, 0.56]];
     for (const [x,y,z,w,h,d] of shapes) physics.world.createCollider(RAPIER.ColliderDesc.cuboid(w*size,h*size,d*size).setTranslation(x*size,y*size,z*size).setFriction(0.1), this.body);
   }
+  move(dx:number,dz:number) {
+    this.controller.computeColliderMovement(this.body.collider(0),{x:dx,y:0,z:dz},undefined,GROUPS_QUERY_WORLD,c=>c.parent()?.handle!==this.body.handle);
+    const movement=this.controller.computedMovement();this.pos[0]+=movement.x;this.pos[2]+=movement.z;
+  }
   update(dt: number) {
-    if (this.moving) this.gait += dt * 11;
+    const distance=Math.hypot(this.pos[0]-this.previous[0],this.pos[2]-this.previous[2]);
+    if(this.moving)this.gait+=distance*3.4/this.size;
+    this.previous=[...this.pos];
     this.attack = Math.max(0, this.attack - dt);
     this.body.setNextKinematicTranslation({ x: this.pos[0], y: this.pos[1], z: this.pos[2] });
     this.body.setNextKinematicRotation({x:0,y:Math.sin(this.yaw/2),z:0,w:Math.cos(this.yaw/2)});
@@ -46,25 +55,31 @@ export class Bear {
       for(let x=-0.36;x<=0.36;x+=0.09) part([x,4.56+0.18*Math.abs(x),1.55],[0.05,0.022,0.012],dark,'box');
       return;
     }
-    const bob = this.moving ? Math.abs(Math.sin(this.gait))*0.1 : Math.sin(time*1.6)*0.025;
-    part([0,1.42+bob,-0.15],[1,1.12,1.68],fur);
-    part([0,1.87+bob,0.65],[1.1,1.2,1.05],fur);
-    part([0,1.91+bob,1.5],[0.82,0.82,0.83],fur);
-    part([0,1.66+bob,2.09],[0.56,0.37,0.58],muzzle);
-    part([0,1.82+bob,2.56],[0.29,0.19,0.17],dark);
-    part([0,1.4+bob,2.18],[0.39,0.07+this.attack*0.13,0.36],dark);
-    part([0,1.1,-1.73],[0.26,0.27,0.25],fur);
-    for (const s of [-1,1]) {
-      part([s*0.63,2.56+bob,1.36],[0.31,0.34,0.22],fur);
-      part([s*0.63,2.56+bob,1.55],[0.17,0.19,0.06],muzzle);
-      part([s*0.35,2.07+bob,2.16],[0.10,0.095,0.06],[0.68,0.42,0.09]);
-      part([s*0.35,2.07+bob,2.21],[0.045,0.068,0.018],dark);
-      for(const z of [-1,0.95]) {
-        const wave = this.moving ? Math.sin(this.gait+(s*z>0?0:Math.PI)) : 0;
-        const swipe = z>0 && s===-1 ? Math.sin(this.attack*Math.PI)*0.9 : 0;
-        part([s*0.78,0.65+Math.max(0,wave)*0.26+swipe,z+wave*0.27],[0.41,0.67,0.43],fur);
-        part([s*0.78,0.24+Math.max(0,wave)*0.26+swipe,z+0.22+wave*0.27],[0.44,0.26,0.58],fur);
-        for(let c=-1;c<=1;c++) part([s*0.78+c*0.19,0.16+Math.max(0,wave)*0.26+swipe,z+0.72+wave*0.27],[0.045,0.06,0.19],[0.77,0.69,0.50]);
+    const bob = this.moving ? Math.sin(this.gait*2)*0.035 : Math.sin(time*1.6)*0.012;
+    // A long rib cage, tucked belly and raised shoulder ridge instead of stacked spherical blobs.
+    part([0,1.07+bob,-0.12],[1.12,1.12,2.25],fur,'roundbox');
+    part([0,1.12+bob,-0.72],[0.59,0.63,0.66],fur);
+    part([0,1.42+bob,0.34],[0.65,0.70,0.68],fur);
+    part([0,1.18+bob,0.82],[0.46,0.51,0.57],fur);
+    part([0,1.30+bob,1.22],[0.43,0.42,0.52],fur);
+    part([0,1.13+bob,1.61],[0.5,0.3,0.65],muzzle,'roundbox');
+    part([0,1.19+bob,1.94],[0.19,0.12,0.09],dark);
+    part([0,1.00+bob,1.62],[0.22,0.025+this.attack*0.07,0.27],dark);
+    part([0,0.92,-1.24],[0.15,0.16,0.17],fur);
+    for (const side of [-1,1]) {
+      part([side*0.31,1.65+bob,1.07],[0.16,0.19,0.12],fur);
+      part([side*0.31,1.65+bob,1.17],[0.09,0.11,0.035],muzzle);
+      part([side*0.285,1.40+bob,1.61],[0.049,0.046,0.025],dark);
+      part([side*0.29,1.48+bob,1.55],[0.14,0.07,0.08],fur);
+      for(const z of [-0.79,0.72]) {
+        const wave=this.moving?Math.sin(this.gait+(side*z>0?0:Math.PI)):0;
+        const lift=Math.max(0,wave)*0.18;
+        const swipe=z>0&&side===-1?Math.sin(this.attack*Math.PI)*0.65:0;
+        const leg=mul(root,translation([side*0.43,0.84,z]),rotationX(wave*0.24-swipe));
+        out.push({mesh:'roundbox',model:mul(leg,translation([0,-0.27,0]),scaling([0.3,0.63,0.37])),color:fur});
+        part([side*0.45,0.29+lift+swipe,z+wave*0.18],[0.17,0.27,0.2],fur);
+        part([side*0.45,0.14+lift+swipe,z+0.16+wave*0.18],[0.21,0.13,0.33],fur);
+        for(let c=-1;c<=1;c++)part([side*0.45+c*0.09,0.11+lift+swipe,z+0.44+wave*0.18],[0.023,0.03,0.095],[0.49,0.43,0.32]);
       }
     }
   }
