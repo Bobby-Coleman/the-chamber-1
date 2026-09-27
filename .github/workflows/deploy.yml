@@ -25,6 +25,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:puppy
+      - run: npm run test:bear
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

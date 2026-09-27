@@ -14,6 +14,8 @@ const HOLE_RIM = [0.85, 0.06, 0.04];
 
 /** Per-level tweaks to the standard chamber. */
 export interface ChamberOptions {
+  /** A level supplies its own connected rooms and matching colliders. */
+  customLayout?: boolean;
   /** Optional half-width/depth. Existing levels keep the standard 24m room. */
   halfSize?: number;
   /** A round hole through the north wall, centred at (x, y) on the wall, with this radius (m). */
@@ -31,6 +33,7 @@ interface WallBox {
 
 /** The chamber's boxes: ground, floor and walls (the north wall split around the hole, if any). */
 function chamberBoxes(opts: ChamberOptions): WallBox[] {
+  if (opts.customLayout) return [];
   const half = opts.halfSize ?? CHAMBER_HALF;
   const size = half * 2;
   const northZ = -half - WALL_THICKNESS / 2;

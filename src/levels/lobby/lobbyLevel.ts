@@ -5,6 +5,8 @@ import { ExitPortal, PortalArrival } from '../../entities/portal';
 import { Button, Lever } from '../../entities/props';
 import { saveSettings, settings } from '../../game/settings';
 import { AfkPranks } from './afk';
+import { CasinoSelector } from './casinoSelector';
+import { resetBearStory } from '../bear/bearLevel';
 import { DEFAULT_ENV, type CameraShot, type Level, type LevelContext, type LevelStatus, type WorldLabel } from '../level';
 
 /*
@@ -12,8 +14,6 @@ import { DEFAULT_ENV, type CameraShot, type Level, type LevelContext, type Level
  * buttons and a lever change settings, and the START portal in the east wall goes to the game.
  */
 
-const SELECTED = [0.15, 0.8, 0.2];
-const UNSELECTED = [0.45, 0.46, 0.5];
 const MOUSE_MIN = 0.2;
 const MOUSE_MAX = 4;
 const WALL = CHAMBER_HALF - 0.08;
@@ -24,7 +24,8 @@ export class LobbyLevel implements Level {
   status: LevelStatus = 'playing';
   private arrival: PortalArrival;
   private exit = new ExitPortal(0);
-  private levelButtons: Button[] = [];
+  private selector: CasinoSelector;
+  private launchTime = -1;
   private fixedLabels: WorldLabel[] = [];
   private allLabels: WorldLabel[] = [];
   private startLabel: WorldLabel;
@@ -43,15 +44,12 @@ export class LobbyLevel implements Level {
     this.afk = new AfkPranks(ctx);
     settings.startLevel = Math.min(levelCount, Math.max(1, settings.startLevel));
 
-    // Level select: a row of buttons along the north side.
-    for (let i = 0; i < levelCount; i++) {
-      const x = (i - (levelCount - 1) / 2) * 2.6;
-      const button = new Button(physics, [x, 0, -8], UNSELECTED, () => this.pickLevel(i + 1));
-      this.levelButtons.push(button);
-      this.fixedLabels.push({ pos: [x, 1.75, -8], text: `LEVEL ${i + 1}`, size: 0.3 });
-    }
-    this.fixedLabels.push({ pos: [0, 2.55, -8], text: 'PICK YOUR POISON', size: 0.42, color: '#ffd166' });
-    this.pickLevel(settings.startLevel);
+    this.selector = new CasinoSelector(ctx, levelCount, settings.startLevel, n => {
+      settings.startLevel = n; saveSettings(); resetBearStory(); this.refreshLabels();
+      this.launchTime = 0;
+      ctx.player.shrinkInto([0,3.3,-6.6],0.65);
+      ctx.hud.hint('');
+    });
 
     // Mouse speed: slower / faster buttons, and a lever to invert looking up and down.
     new Button(physics, [-8, 0, -1.4], [0.2, 0.45, 0.9], () => this.changeMouse(1 / 1.2));
@@ -86,12 +84,7 @@ export class LobbyLevel implements Level {
     spawnJunk(physics, junk('rubber duck'), [1.5, 0.3, 3.5]);
   }
 
-  private pickLevel(n: number) {
-    settings.startLevel = n;
-    saveSettings();
-    this.levelButtons.forEach((b, i) => (b.color = i + 1 === n ? SELECTED : UNSELECTED));
-    this.refreshLabels();
-  }
+  dispose() {this.selector.dispose();}
 
   private changeMouse(factor: number) {
     settings.mouseSpeed = Math.min(MOUSE_MAX, Math.max(MOUSE_MIN, Math.round(settings.mouseSpeed * factor * 20) / 20));
@@ -109,8 +102,10 @@ export class LobbyLevel implements Level {
   update(dt: number) {
     const { player, hud } = this.ctx;
     this.arrival.update(dt);
+    if(this.arrival.done) this.selector.update(dt);
+    if(this.launchTime>=0) {this.launchTime+=dt;if(this.launchTime>0.85)this.status='exited';}
     this.exit.update(dt, player);
-    if (this.exit.entered) this.status = 'exited';
+    if (this.exit.entered) { resetBearStory(); this.status = 'exited'; }
     this.afk.update(dt, this.arrival.done && this.status === 'playing');
     // The only way to die in the lobby is to leave your character unattended near a grenade.
     if (player.mode === 'ragdoll' && this.status === 'playing') {
@@ -130,10 +125,13 @@ export class LobbyLevel implements Level {
     this.arrival.draw(out);
     this.exit.draw(out);
     this.afk.draw(out);
+    this.selector.draw(out);
   }
 
   labels(): WorldLabel[] {
-    return this.allLabels;
+    const nearMachine=Math.hypot(this.ctx.player.pos[0],this.ctx.player.pos[2]+8)<10;
+    const labels=nearMachine?this.allLabels.filter(label=>label.pos[2]>-11):this.allLabels;
+    return [...labels,...this.selector.labels()];
   }
 
   environment() {
